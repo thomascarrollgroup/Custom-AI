@@ -51,7 +51,7 @@ def auto_preprocess_data(df, target_col):
             encoders[col + "_imputer"] = imputer
             nunique = df[col].nunique(dropna=True)
             if nunique <= 10:
-                ohe = OneHotEncoder(sparse=False, handle_unknown='ignore')
+                ohe = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
                 arr = ohe.fit_transform(df[[col]])
                 ohe_cols = [f"{col}_{cat}" for cat in ohe.categories_[0]]
                 df = df.drop(columns=[col])

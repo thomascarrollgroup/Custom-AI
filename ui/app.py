@@ -20,6 +20,8 @@ import sys
 import io
 import base64
 import pandas as pd
+import matplotlib
+matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 import pickle
 import os
@@ -702,17 +704,16 @@ class BespokePredictionApp(QWidget):
             log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
             QMessageBox.critical(self, "Error", f"Failed to load model file:\n{e}")
             return
+
         try:
             prediction_type = "classification" if self.prediction_type.startswith("Yes/No") else "regression"
             preds = model.predict(self.prediction_processed_x)
 
             result_df = self.prediction_test_df.copy()
 
+            class_names = None
             if prediction_type == "classification":
-                target_encoder = None
-                class_names = None
-                if self.prediction_encoders and self.prediction_target in self.prediction_encoders:
-                    target_encoder = self.prediction_encoders[self.prediction_target]
+                target_encoder = self.prediction_encoders.get(self.prediction_target)
                 if target_encoder and hasattr(target_encoder, "inverse_transform"):
                     try:
                         preds = target_encoder.inverse_transform(preds)
@@ -720,19 +721,26 @@ class BespokePredictionApp(QWidget):
                             class_names = target_encoder.classes_
                     except Exception:
                         pass
+
             result_df["Prediction"] = preds
 
             if prediction_type == "classification" and hasattr(model, "predict_proba"):
                 proba = model.predict_proba(self.prediction_processed_x)
+
                 if class_names is None and hasattr(model, "classes_"):
                     class_names = model.classes_
+
                 if class_names is not None:
                     if len(class_names) == 2:
                         pos_class = class_names[1]
-                        result_df[f"Probability_{pos_class} (%)"] = (proba[:, 1] * 100).round(2)
+                        if proba.shape[1] == 2:
+                            result_df[f"Probability_{pos_class} (%)"] = (proba[:, 1] * 100).round(2)
+                        elif proba.shape[1] == 1:
+                            result_df[f"Probability_{pos_class} (%)"] = (proba[:, 0] * 100).round(2)
                     else:
                         for idx, cname in enumerate(class_names):
-                            result_df[f"Probability_{cname} (%)"] = (proba[:, idx] * 100).round(2)
+                            if idx < proba.shape[1]:
+                                result_df[f"Probability_{cname} (%)"] = (proba[:, idx] * 100).round(2)
                 else:
                     for i in range(proba.shape[1]):
                         result_df[f"Probability_Class_{i} (%)"] = (proba[:, i] * 100).round(2)
@@ -741,9 +749,11 @@ class BespokePredictionApp(QWidget):
             self.show_predictions_table(result_df.head(100))
             self.pred_save_btn.setEnabled(True)
             self.pred_save_btn.setStyleSheet(PREDICTION_ENABLED_STYLESHEET)
+
         except Exception as e:
             log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
             QMessageBox.critical(self, "Error", f"Failed to generate predictions:\n{e}")
+
 
     def show_predictions_table(self, df):
         self.prediction_help_state = "predictions_made"
