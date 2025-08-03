@@ -44,7 +44,7 @@ class BespokePredictionApp(QWidget):
         super().__init__()
         self.user_name = None
         self.prediction_help_state = "default"
-        self.setWindowTitle("TC AI Prediction Tool")
+        self.setWindowTitle("TC AI Predicshun Tool")
         self.setWindowIcon(QIcon(resource_path("Images/icon.png")))
         self.df = None
         self.selected_features = []

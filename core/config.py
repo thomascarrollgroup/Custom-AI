@@ -17,7 +17,7 @@ class MLConfig:
     NUMERIC_IMPUTE_VALUE: float = -1
     CATEGORICAL_IMPUTE_VALUE: str = "missing"
     MAX_UNIQUE_CATEGORIES: int = 10
-    TEST_SIZE: float = 0.2
+    TEST_SIZE: float = 0.5
     RANDOM_STATE: int = 42
     CV_FOLDS: int = 3
     MAX_ITERATIONS: int = 1000
