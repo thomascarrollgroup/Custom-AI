@@ -1,3 +1,4 @@
+
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel,
     QMessageBox, QListWidget, QAbstractItemView, QComboBox, QTabWidget, QTableWidget,
@@ -12,22 +13,34 @@ from ui.styles import BUTTON_STYLESHEET, TAB_STYLESHEET, COMBOBOX_STYLESHEET, PR
 from ui.dialogs import ColumnSelectDialog
 from core.logging import log_error_to_neon
 from core.resource_path import resource_path, get_writable_path
-from core.data import load_csv
 from core.model import auto_train_and_evaluate_models, save_model
 from core.preprocess import auto_preprocess_data
 from core.model_worker import ModelTrainingWorker
 import sys
+from dotenv import load_dotenv
 import io
 import base64
 import pandas as pd
 import matplotlib
+
+from core.validators import validate_dataframe
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 import pickle
 import os
+import numpy as np
+import signal
 
 class BespokePredictionApp(QWidget):
     def __init__(self):
+        """
+        Initialises the application.
+
+        Sets up the application window, its title and icon, and creates the layout
+        for the login page and main page. The login page is shown by default.
+
+        :return: None
+        """
         super().__init__()
         self.user_name = None
         self.prediction_help_state = "default"
@@ -47,6 +60,15 @@ class BespokePredictionApp(QWidget):
         self.stacked_layout.setCurrentWidget(self.login_widget)
 
     def init_main_ui(self, main_widget):
+        """
+        Initialises the main application UI.
+
+        Sets up the main application layout, including the tabs and a help button.
+
+        :param main_widget: The main application widget.
+        :type main_widget: QWidget
+        :return: None
+        """
         main_widget.setAttribute(Qt.WA_StyledBackground, True)
         main_widget.setStyleSheet("background: transparent;")
         self.init_fonts()
@@ -74,6 +96,15 @@ class BespokePredictionApp(QWidget):
         self.set_tab_enabled(4, True)
 
     def init_login_page(self):
+        """
+        Initializes the login page UI.
+
+        Sets up the layout and style for the login page, including an icon, 
+        an input field for the user to enter their name, and a button to proceed. 
+        The login button is connected to the handle_login method to handle user input.
+
+        :return: None
+        """
         self.login_widget = QWidget()
         self.login_widget.setAttribute(Qt.WA_StyledBackground, True)
         self.login_widget.setStyleSheet("background: transparent;")
@@ -101,6 +132,15 @@ class BespokePredictionApp(QWidget):
         layout.addWidget(self.login_btn, alignment=Qt.AlignCenter)
 
     def paintEvent(self, event):
+        """
+        Custom paint event to draw the background image with varying opacity based on the current widget.
+
+        This method overrides the default paint event to render a background image with full opacity 
+        when the current widget is the login or home tab, and reduced opacity otherwise.
+
+        :param event: The paint event object containing details about the repaint request.
+        :type event: QPaintEvent
+        """
         painter = QPainter(self)
         if hasattr(self, "stacked_layout") and self.stacked_layout.currentWidget() == self.login_widget:
             painter.setOpacity(1.0)
@@ -114,6 +154,11 @@ class BespokePredictionApp(QWidget):
         super().paintEvent(event)
 
     def handle_login(self):
+        """
+        Handle the login button click by validating the input name and switching to the main widget if valid.
+
+        :return: None
+        """
         name = self.name_input.text().strip()
         if name:
             self.user_name = name
@@ -122,6 +167,11 @@ class BespokePredictionApp(QWidget):
             QMessageBox.warning(self, "Input Required", "Please enter your name to continue.")
 
     def show_context_help(self):
+        """
+        Show context-sensitive help based on the current tab index.
+
+        :return: None
+        """
         idx = self.tabs.currentIndex()
         if idx == 0:
             self.show_help("home")
@@ -137,6 +187,12 @@ class BespokePredictionApp(QWidget):
             self.show_help("home")
 
     def init_fonts(self):
+        """
+        Initialize the fonts used in the application by loading the Caveat and Inter variable fonts and setting the
+        default font to Inter.
+
+        :return: None
+        """
         font_db = QFontDatabase()
         caveat_font_id = font_db.addApplicationFont(resource_path("Font/Caveat/Caveat-VariableFont_wght.ttf"))
         inter_font_id = font_db.addApplicationFont(resource_path("Font/Inter/Inter-VariableFont_opsz,wght.ttf"))
@@ -145,6 +201,16 @@ class BespokePredictionApp(QWidget):
         self.setFont(QFont(self.inter_font_family, 15))
 
     def init_palette(self):
+        """
+        Initialize the application's color palette.
+
+        Set the application's palette to a custom color scheme.
+
+        Also set a global stylesheet for all widgets to use the Inter font family and a font size of 15px. Labels and
+        table headers are also given a font family of Inter.
+
+        :return: None
+        """
         palette = QPalette()
         palette.setColor(QPalette.Window, QColor("#fafbfc"))
         palette.setColor(QPalette.WindowText, QColor("#121212"))
@@ -168,6 +234,14 @@ class BespokePredictionApp(QWidget):
         """)
 
     def init_tabs(self):
+        """
+        Initialize the application's tabs.
+
+        Creates a QTabWidget and sets up 5 tabs: Home, Select Features, Data Quality, Preprocess, and Prediction.
+        Each tab is initially set to an empty QWidget, and the tabs are added to the QTabWidget in the correct order.
+
+        :return: None
+        """
         self.tabs = QTabWidget()
         self.tabs.setTabBarAutoHide(True)
         self.tabs.setStyleSheet(TAB_STYLESHEET)
@@ -189,6 +263,16 @@ class BespokePredictionApp(QWidget):
         self.tabs.setStyleSheet(TAB_STYLESHEET + f"QTabWidget::tab-bar {{ margin-top: {margin}px; }}")
 
     def init_home_tab(self):
+        """
+        Initializes the home tab UI.
+
+        Sets up the layout and style for the home tab, including the application title, 
+        a button to open a CSV file, and a button to generate predictions. The open button 
+        is connected to the open_csv method to handle user input, and the generate predictions 
+        button is connected to the goto_prediction_tab method to handle user input.
+
+        :return: None
+        """
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignCenter)
         label = QLabel(
@@ -213,6 +297,15 @@ class BespokePredictionApp(QWidget):
         self.home_tab.setLayout(layout)
 
     def init_select_tab(self):
+        """
+        Initializes the select tab UI.
+
+        Sets up the layout and style for the select tab, allowing the user to choose
+        the prediction type, target column, and feature columns. The navigation buttons
+        allow the user to go back to the home tab, or proceed to the quality tab.
+
+        :return: None
+        """
         layout = QVBoxLayout()
         self.prediction_type_label = QLabel("Select prediction type:")
         self.prediction_type_label.setStyleSheet("font-weight: bold; font-size: 18px;")
@@ -254,6 +347,9 @@ class BespokePredictionApp(QWidget):
         return self.prediction_type_combo.currentText()
     
     def run_data_analyst(self):
+        """
+        Generate and execute data analysis code using LLM with enhanced security measures.
+        """
         question = self.analyst_question_input.text().strip()
         if not question:
             QMessageBox.warning(self, "Input Required", "Please enter a question about your data.")
@@ -262,20 +358,46 @@ class BespokePredictionApp(QWidget):
             QMessageBox.warning(self, "No Data", "Please load a dataset first.")
             return
 
+        # Basic input validation and sanitization
+        if len(question) > 1000:  # Limit question length
+            QMessageBox.warning(self, "Input Too Long", "Please keep your question under 1000 characters.")
+            return
+        
+        # Check for potentially dangerous keywords in the question
+        dangerous_keywords = ['import os', 'import sys', '__import__', 'eval(', 'exec(', 'open(', 'file(', 'subprocess', 'system']
+        question_lower = question.lower()
+        if any(keyword in question_lower for keyword in dangerous_keywords):
+            from core.logging_setup import log_security_event
+            log_security_event(
+                "suspicious_query", 
+                f"User attempted potentially dangerous query: {question[:100]}...",
+                user_name=getattr(self, "user_name", None)
+            )
+            QMessageBox.warning(self, "Invalid Query", "Your question contains potentially unsafe content. Please rephrase your data analysis question.")
+            return
+
         self.analyst_output.setText("Thinking...")
         QApplication.processEvents()
 
         try:
+            load_dotenv()
             GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+            if not GROQ_API_KEY:
+                self.analyst_output.setText("<span style='color:red;'>Error: GROQ_API_KEY environment variable not set.</span>")
+                return
 
+            # Enhanced system prompt with security constraints
             system_prompt = (
-                "You are an expert Python data analyst.\n"
-                "A CSV file has been loaded into a pandas DataFrame named `df`.\n"
-                "Write Python code that answers the user's question using `df`.\n"
-                "If the answer requires a graph, generate it using matplotlib (and seaborn if needed).\n"
-                "Call plt.show() to display any plots.\n"
-                "Assign any non-plot output to a variable called `result`.\n"
-                "Do not include print statements or explanations. Just return the code."
+                "You are an expert Python data analyst. A pandas DataFrame named `df` is available.\n"
+                "Write Python code that answers the user's question using ONLY `df`, pandas, numpy, matplotlib, and seaborn.\n"
+                "IMPORTANT SECURITY CONSTRAINTS:\n"
+                "- NEVER import os, sys, subprocess, or any system modules\n"
+                "- NEVER use eval(), exec(), open(), or file operations\n"
+                "- NEVER access anything outside the provided DataFrame\n"
+                "- Only use matplotlib for plotting (plt.show() to display)\n"
+                "- Assign final results to a variable called `result`\n"
+                "- Keep code simple and focused on data analysis only\n"
+                "Do not include print statements or explanations. Return only the code."
             )
 
             response = requests.post(
@@ -287,7 +409,8 @@ class BespokePredictionApp(QWidget):
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": question}
                     ],
-                    "temperature": 0.3
+                    "temperature": 0.3,
+                    "max_tokens": 1000  # Limit response length
                 },
                 timeout=30
             )
@@ -306,11 +429,47 @@ class BespokePredictionApp(QWidget):
             code = response_json["choices"][0]["message"]["content"]
             code = code.strip("```python\n").strip("```").strip()
 
-            local_vars = {"df": self.df.copy(), "plt": plt}
+            # Enhanced code validation before execution
+            if not self._validate_generated_code(code):
+                from core.logging_setup import log_security_event
+                log_security_event(
+                    "dangerous_code_generation", 
+                    f"LLM generated potentially dangerous code for question: {question[:100]}...",
+                    user_name=getattr(self, "user_name", None)
+                )
+                self.analyst_output.setText("<span style='color:red;'>Generated code failed security validation. Please try rephrasing your question.</span>")
+                return
 
+            # Create secure execution environment
+            safe_globals = {
+                "__builtins__": {
+                    # Allow only safe built-in functions
+                    "len": len, "range": range, "enumerate": enumerate, "zip": zip,
+                    "min": min, "max": max, "sum": sum, "abs": abs, "round": round,
+                    "sorted": sorted, "reversed": reversed, "str": str, "int": int,
+                    "float": float, "bool": bool, "list": list, "dict": dict, "set": set,
+                    "tuple": tuple, "type": type, "isinstance": isinstance, "hasattr": hasattr
+                }
+            }
+            
+            # Add safe imports to the environment
+            import pandas as pd
+            import numpy as np
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            
+            local_vars = {
+                "df": self.df.copy(),  # Use a copy to prevent modification
+                "pd": pd,
+                "np": np, 
+                "plt": plt,
+                "sns": sns
+            }
+
+            # Custom show function for plot display
             def custom_show():
                 buf = io.BytesIO()
-                plt.savefig(buf, format='png')
+                plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
                 buf.seek(0)
                 img_b64 = base64.b64encode(buf.read()).decode('utf-8')
                 buf.close()
@@ -320,17 +479,117 @@ class BespokePredictionApp(QWidget):
             plt.show = custom_show
 
             try:
-                exec(code, {}, local_vars)
+                import concurrent.futures
+
+                def exec_with_timeout():
+                    exec(code, safe_globals, local_vars)
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(exec_with_timeout)
+                    future.result(timeout=5)  # seconds
+
+                
                 result = local_vars.get("result", None)
                 if result is not None:
                     self.analyst_output.append(f"<pre>{str(result)}</pre>")
+                    
+                # Log successful execution
+                from core.logging_setup import get_logger
+                logger = get_logger(__name__, getattr(self, "user_name", None))
+                logger.info(f"Successfully executed LLM-generated code for question: {question[:100]}...")
+                    
+            except TimeoutError:
+                self.analyst_output.append("<span style='color:red;'>Code execution timed out (5 second limit)</span>")
             except Exception as e:
                 self.analyst_output.append(f"<span style='color:red;'>Error executing code: {e}</span>")
+                from core.errors import handle_error
+                import logging
+                handle_error(e, "llm_code_execution", logging.getLogger(__name__))
 
+        except requests.exceptions.Timeout:
+            self.analyst_output.setText("Request timed out. Please check your network connection.")
+        except requests.exceptions.ConnectionError:
+            self.analyst_output.setText("Unable to connect to the Groq API. Please check your internet.")
+        except requests.exceptions.RequestException as e:
+            self.analyst_output.setText(f"Request failed: {e}")
         except Exception as e:
-            self.analyst_output.setText(f"Error: {e}")
+            from core.errors import handle_error
+            import logging
+            handle_error(e, "data_analysis", logging.getLogger(__name__))
+            log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
+            self.analyst_output.setText(f"Unexpected error: {e}")
+
+    def _validate_generated_code(self, code: str) -> bool:
+        """Validate generated code for security risks before execution."""
+        # Convert to lowercase for case-insensitive checking
+        code_lower = code.lower()
+        
+        # List of dangerous patterns to block
+        dangerous_patterns = [
+            # System access
+            'import os', 'import sys', 'import subprocess', 'import shutil', 'import glob',
+            'from os', 'from sys', 'from subprocess', 'from shutil',
+            '__import__', 'importlib',
+            
+            # File operations
+            'open(', 'file(', 'with open', 'io.', 'pathlib', 'tempfile',
+            
+            # Code execution
+            'eval(', 'exec(', 'compile(', 'globals()', 'locals()', 'vars()',
+            
+            # Network access
+            'urllib', 'requests', 'socket', 'http', 'ftp',
+            
+            # Process/system control
+            'subprocess', 'system(', 'popen(', 'spawn',
+            
+            # Dangerous built-ins
+            'getattr(', 'setattr(', 'delattr(', 'hasattr(',
+            '__getattribute__', '__setattr__', '__delattr__',
+            
+            # Environment access
+            'environ', 'getenv', 'putenv',
+            
+            # Pickle/serialization (potential code execution)
+            'pickle', 'dill', 'joblib.load', 'joblib.dump',
+            
+            # Database connections (beyond pandas)
+            'sqlite3', 'psycopg2', 'pymongo', 'sqlalchemy',
+        ]
+        
+        # Check for dangerous patterns
+        for pattern in dangerous_patterns:
+            if pattern in code_lower:
+                return False
+        
+        # Check for attempts to access private/protected attributes
+        if '__' in code and ('__builtins__' in code_lower or '__globals__' in code_lower):
+            return False
+            
+        # Limit code length (prevent overly complex code)
+        if len(code) > 2000:  # 2000 characters max
+            return False
+        
+        # Basic syntax validation
+        try:
+            compile(code, '<string>', 'exec')
+        except SyntaxError:
+            return False
+        
+        return True
 
     def init_quality_tab(self):
+        """
+        Initializes the quality tab UI.
+
+        Sets up the layout and style for the quality tab, including a title, a
+        text input field for the user to enter a question about their data, a
+        button to run the data analyst, and a read-only text area to display the
+        output of the data analyst. The button is connected to the run_data_analyst
+        method to handle user input.
+
+        :return: None
+        """
         layout = QVBoxLayout()
         layout.setContentsMargins(30, 20, 30, 20)
         layout.setSpacing(20)
@@ -420,80 +679,226 @@ class BespokePredictionApp(QWidget):
         self.populate_preprocess_preview()
 
     def preprocess_selected(self):
-        selected_features = [item.text() for item in self.features_list.selectedItems()]
-        target_column = self.target_combo.currentText()
-        if not selected_features or not target_column:
-            QMessageBox.warning(self, "Warning", "Please select features and target.")
-            return
-        df = self.df[selected_features + [target_column]].copy()
-        
-        threshold = int(0.5 * len(df.columns))
-        initial_row_count = len(df)
-        df_cleaned = df[df.isnull().sum(axis=1) <= threshold].copy()
-        removed_rows = initial_row_count - len(df_cleaned)
-        if removed_rows > 0:
-            QMessageBox.information(self, "Rows Removed", f"{removed_rows} rows were removed due to having more than 50% missing values.")
-  
-        for col in df_cleaned.columns:
-            missing_flag = f"{col}_missing"
-            if pd.api.types.is_numeric_dtype(df_cleaned[col]) or pd.api.types.is_float_dtype(df_cleaned[col]):
-                df_cleaned[missing_flag] = df_cleaned[col].isnull().astype(int)
-                df_cleaned[col] = df_cleaned[col].fillna(-1)
-            else:
-                df_cleaned[missing_flag] = df_cleaned[col].isnull().astype(int)
-                df_cleaned[col] = df_cleaned[col].fillna('missing')
+        """Preprocess selected features and target with enhanced error handling."""
         try:
-            processed_data, encoders, processed_cols = auto_preprocess_data(df_cleaned, target_column)
+            from core.validators import validate_features, validate_target_column
+            from core.errors import PreprocessingError, ValidationError
+            from core.logging_setup import get_logger
+            
+            logger = get_logger(__name__, getattr(self, "user_name", None))
+            logger.info("Starting data preprocessing")
+            
+            selected_features = [item.text() for item in self.features_list.selectedItems()]
+            target_column = self.target_combo.currentText()
+            
+            if not selected_features or not target_column:
+                QMessageBox.warning(self, "Warning", "Please select features and target.")
+                return
+            
+            # Validate selections
+            validate_features(self.df, selected_features)
+            validate_target_column(self.df, target_column)
+            
+            df = self.df[selected_features + [target_column]].copy()
+            
+            # Check for sufficient data
+            if len(df) < 10:
+                raise ValidationError("Dataset too small for training (minimum 10 rows required)")
+            
+            threshold = int(0.5 * len(df.columns))
+            initial_row_count = len(df)
+            df_cleaned = df[df.isnull().sum(axis=1) <= threshold].copy()
+            removed_rows = initial_row_count - len(df_cleaned)
+            
+            if len(df_cleaned) < 10:
+                raise ValidationError("Too many rows with missing values. Dataset too small after cleaning.")
+            
+            if removed_rows > 0:
+                QMessageBox.information(self, "Rows Removed", f"{removed_rows} rows were removed due to having more than 50% missing values.")
+      
+            for col in df_cleaned.columns:
+                missing_flag = f"{col}_missing"
+                if pd.api.types.is_numeric_dtype(df_cleaned[col]) or pd.api.types.is_float_dtype(df_cleaned[col]):
+                    df_cleaned[missing_flag] = df_cleaned[col].isnull().astype(int)
+                    df_cleaned[col] = df_cleaned[col].fillna(-1)
+                else:
+                    df_cleaned[missing_flag] = df_cleaned[col].isnull().astype(int)
+                    df_cleaned[col] = df_cleaned[col].fillna('missing')
+            
+            processed_data, encoders, processed_cols, feature_to_base = auto_preprocess_data(df_cleaned, target_column)
+            self.feature_to_base = feature_to_base
+
+            # Save processed_cols as usual
+            self.selected_features_after_preproc = [col for col in processed_cols if col != target_column]
+            # Validate preprocessing results
+            if processed_data.empty:
+                raise PreprocessingError("Preprocessing resulted in empty dataset")
+            
+            if len(processed_cols) == 0:
+                raise PreprocessingError("No features available after preprocessing")
+            
             self.processed_data = processed_data
             self.encoders = encoders
             self.selected_features_after_preproc = [col for col in processed_cols if col != target_column]
             self.target_column_after_preproc = target_column
             self.apply_preprocessing_btn.hide()
             self.preprocess_label.setText("Preprocessing complete! Proceeding to model training...")
+            
+            logger.info(f"Preprocessing completed successfully. Features: {len(self.selected_features_after_preproc)}, Rows: {len(processed_data)}")
             QTimer.singleShot(1200, self.show_model_training_panel)
+            
+        except ValidationError as e:
+            QMessageBox.critical(self, "Validation Error", f"{e.message}\n\n{e.details or ''}")
+        except PreprocessingError as e:
+            QMessageBox.critical(self, "Preprocessing Error", f"{e.message}\n\n{e.details or ''}")
         except Exception as e:
+            from core.errors import handle_error
+            import logging
+            handle_error(e, "data_preprocessing", logging.getLogger(__name__))
             log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
-            QMessageBox.critical(self, "Error", f"Failed to preprocess data:\n{e}")
+            QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred during preprocessing:\n{str(e)}")
 
     def show_model_training_panel(self):
         self.start_model_training()
 
     def start_model_training(self):
-        encoder_name, ok = QInputDialog.getText(
-            self, "Save Encoders",
-            "Enter a name for your encoder file (no extension)\nThis saves how your data needs to be preprocessed\n⚠️THIS WILL BE NEEDED WHEN TESTING!!⚠️"
-        )
-        if ok and encoder_name:
-            enc_dir = get_writable_path(os.path.join("encoders", ""))
-            if not os.path.exists(enc_dir):
-                os.makedirs(enc_dir)
-            file_path = get_writable_path(os.path.join("encoders", f"{encoder_name}.pkl"))
-            with open(file_path, "wb") as f:
-                pickle.dump({
-                    'encoders': self.encoders,
-                    'features': self.selected_features_after_preproc,
-                    'target': self.target_column_after_preproc,
-                    'initial_features': getattr(self, 'initial_selected_features', self.selected_features_after_preproc)
-                }, f)
-            QMessageBox.information(
-                self,
-                "Success",
-                f"Preprocessing complete and pipeline saved!\n\nFile: {file_path}\n\n"
-                "Remember the file name, you'll need it when generating predictions."
+        """
+        Start model training with enhanced error handling and validation.
+        """
+        try:
+            from core.validators import validate_model_name
+            from core.errors import ModelTrainingError, ValidationError
+            from core.logging_setup import get_logger
+            
+            logger = get_logger(__name__, getattr(self, "user_name", None))
+            
+            encoder_name, ok = QInputDialog.getText(
+                self, "Save Encoders",
+                "Enter a name for your encoder file (no extension)\nThis saves how your data needs to be preprocessed\n⚠️THIS WILL BE NEEDED WHEN TESTING!!⚠️"
             )
-        x = self.processed_data[self.selected_features_after_preproc]
-        y = self.processed_data[self.target_column_after_preproc]
-        prediction_type = "classification" if self.prediction_type.startswith("Yes/No") else "regression"
-        self.progress_dialog = QProgressDialog("Training models...", "Cancel", 0, 100, self)
-        self.progress_dialog.setWindowTitle("Training in Progress")
-        self.progress_dialog.setWindowModality(True)
-        self.progress_dialog.setValue(0)
-        self.progress_dialog.setMinimumWidth(400)
-        self.progress_dialog.show()
-        self.worker = ModelTrainingWorker(x, y, prediction_type=prediction_type, train_func=auto_train_and_evaluate_models)
-        self.worker.progress.connect(self.update_training_progress)
-        self.worker.finished.connect(self.training_finished)
-        self.worker.start()
+            
+            if ok and encoder_name:
+                try:
+                    # Validate encoder name
+                    encoder_name = validate_model_name(encoder_name)
+                    
+                    enc_dir = get_writable_path(os.path.join("encoders", ""))
+                    if not os.path.exists(enc_dir):
+                        os.makedirs(enc_dir)
+                    
+                    file_path = get_writable_path(os.path.join("encoders", f"{encoder_name}.pkl"))
+                    
+                    # Check if file already exists
+                    if os.path.exists(file_path):
+                        reply = QMessageBox.question(
+                            self, "File Exists", 
+                            f"Encoder file '{encoder_name}.pkl' already exists. Overwrite?",
+                            QMessageBox.Yes | QMessageBox.No
+                        )
+                        if reply != QMessageBox.Yes:
+                            return
+                    
+                    with open(file_path, "wb") as f:
+                        pickle.dump({
+                            'encoders': self.encoders,
+                            'features': self.selected_features_after_preproc,
+                            'target': self.target_column_after_preproc,
+                            'feature_to_base': self.feature_to_base,
+                            'initial_features': getattr(self, 'initial_selected_features', self.selected_features_after_preproc)
+                        }, f)
+                    
+                    logger.info(f"Encoder pipeline saved successfully: {file_path}")
+                    QMessageBox.information(
+                        self,
+                        "Success",
+                        f"Preprocessing complete and pipeline saved!\n\nFile: {file_path}\n\n"
+                        "Remember the file name, you'll need it when generating predictions."
+                    )
+                    
+                except ValidationError as e:
+                    QMessageBox.critical(self, "Invalid Name", f"{e.message}")
+                    return
+                except Exception as e:
+                    QMessageBox.critical(self, "Save Error", f"Failed to save encoder file:\n{str(e)}")
+                    return
+            
+            # Validate training data
+            if not hasattr(self, 'processed_data') or self.processed_data is None:
+                raise ModelTrainingError("No processed data available for training")
+            
+            if not self.selected_features_after_preproc:
+                raise ModelTrainingError("No features available for training")
+            
+            x = self.processed_data[self.selected_features_after_preproc]
+            y = self.processed_data[self.target_column_after_preproc]
+            
+            # Validate training data quality
+            if x.empty or y.empty:
+                raise ModelTrainingError("Training data is empty")
+            
+            if len(x) != len(y):
+                raise ModelTrainingError("Feature and target data length mismatch")
+            
+            if len(x) < 10:
+                raise ModelTrainingError("Insufficient data for training (minimum 10 samples required)")
+            
+            # Check for target variable issues
+            unique_targets = y.nunique()
+            if unique_targets == 1:
+                raise ModelTrainingError("Target variable has only one unique value - cannot train model")
+            
+            prediction_type = "classification" if self.prediction_type.startswith("Yes/No") else "regression"
+            
+            # For classification, ensure we have enough samples per class
+            if prediction_type == "classification" and unique_targets > 1:
+                class_counts = y.value_counts()
+                min_class_count = class_counts.min()
+                if min_class_count < 2:
+                    raise ModelTrainingError(f"Insufficient samples for classification. Smallest class has only {min_class_count} sample(s)")
+            
+            logger.info(f"Starting model training. Type: {prediction_type}, Features: {len(self.selected_features_after_preproc)}, Samples: {len(x)}")
+            
+            self.progress_dialog = QProgressDialog("Training models...", "Cancel", 0, 100, self)
+            self.progress_dialog.setWindowTitle("Training in Progress")
+            self.progress_dialog.setWindowModality(True)
+            self.progress_dialog.setValue(0)
+            self.progress_dialog.setMinimumWidth(400)
+            self.progress_dialog.show()
+            
+            # Connect cancel button
+            self.progress_dialog.canceled.connect(self._cancel_training)
+            
+            self.worker = ModelTrainingWorker(x, y, prediction_type=prediction_type, train_func=auto_train_and_evaluate_models)
+            self.worker.progress.connect(self.update_training_progress)
+            self.worker.finished.connect(self.training_finished)
+            self.worker.error_occurred.connect(self.training_error)  # Use error_occurred, not error
+            self.worker.start()
+
+            
+        except ModelTrainingError as e:
+            QMessageBox.critical(self, "Training Error", f"{e.message}\n\n{e.details or ''}")
+        except Exception as e:
+            from core.errors import handle_error
+            import logging
+            handle_error(e, "model_training_setup", logging.getLogger(__name__))
+            QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred:\n{str(e)}")
+    
+    def _cancel_training(self):
+        """Handle training cancellation."""
+        if hasattr(self, 'worker') and self.worker.isRunning():
+            self.worker.terminate()
+            self.worker.wait()
+            from core.logging_setup import get_logger
+            logger = get_logger(__name__, getattr(self, "user_name", None))
+            logger.info("Model training cancelled by user")
+    
+    def training_error(self, error_msg):
+        """Handle training errors from worker thread."""
+        self.progress_dialog.close()
+        QMessageBox.critical(self, "Training Failed", f"Model training failed:\n{error_msg}")
+        from core.logging_setup import get_logger
+        logger = get_logger(__name__, getattr(self, "user_name", None))
+        logger.error(f"Model training failed: {error_msg}")
 
     def update_training_progress(self, percent, msg):
         self.progress_dialog.setValue(percent)
@@ -563,6 +968,15 @@ class BespokePredictionApp(QWidget):
         self.selected_model_index = row
 
     def save_selected_model(self):
+        """
+        Save the currently selected model to a file.
+
+        Prompts the user to enter a name for the model file. If a valid name is provided,
+        the model is saved to the specified path, and a confirmation message is shown.
+        After saving, navigates to the prediction tab to allow the user to use the saved model
+        for generating predictions on new data.
+        """
+
         idx = self.selected_model_index
         res = self.results[idx]
         model = self.trained_models[res['name']]
@@ -610,6 +1024,15 @@ class BespokePredictionApp(QWidget):
         self.prediction_tab.setLayout(layout)
 
     def reset_prediction_tab(self):
+        """
+        Resets the prediction tab to its default state.
+
+        This method clears all data and UI elements related to predictions. It
+        resets the help state, clears summary labels, disables certain buttons,
+        and resets the prediction table. This prepares the prediction tab for
+        fresh input and prevents any residual data from previous usage.
+        """
+
         self.prediction_help_state = "default"
         self.pred_summary_label.setText("")
         self.pred_upload_test_btn.setEnabled(True)
@@ -630,22 +1053,47 @@ class BespokePredictionApp(QWidget):
         self.prediction_target = None
 
     def pred_upload_test_file(self):
-        test_file, _ = QFileDialog.getOpenFileName(self, "Open Test CSV File", "", "CSV Files (*.csv)")
+        """
+        Load test data file using secure data loader.
+        """
+        test_file, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Open Test Data File", 
+            "", 
+            "Data Files (*.csv *.xlsx *.xls);;CSV Files (*.csv);;Excel Files (*.xlsx *.xls)"
+        )
         if not test_file:
             return
+        
         try:
-            test_df = pd.read_csv(test_file)
+            from core.data_loader import load_data_file
+            from core.errors import DataLoadingError, ValidationError, SecurityError
+            
+            test_df = load_data_file(test_file)
             self.prediction_test_df = test_df
+            
+        except SecurityError as e:
+            QMessageBox.critical(self, "Security Error", f"{e.message}\n\n{e.details or ''}")
+            return
+        except DataLoadingError as e:
+            QMessageBox.critical(self, "File Loading Error", f"{e.message}\n\n{e.details or ''}")
+            return
+        except ValidationError as e:
+            QMessageBox.critical(self, "Data Validation Error", f"{e.message}\n\n{e.details or ''}")
+            return
         except Exception as e:
+            from core.errors import handle_error
+            import logging
+            handle_error(e, "test_file_loading", logging.getLogger(__name__))
             log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
-            QMessageBox.critical(self, "Error", f"Failed to load test file:\n{e}")
+            QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred:\n{str(e)}")
             return
 
         summary = f"<b>File:</b> {test_file}<br>"
-        summary += f"<b>Shape:</b> {test_df.shape[0]} rows, {test_df.shape[1]} columns<br><br>"
+        summary = f"<b>Shape:</b> {test_df.shape[0]} rows, {test_df.shape[1]} columns<br><br>"
         used_cols = list(test_df.columns)
-        summary += "<b>Preview:</b><br>"
-        summary += test_df[used_cols].head(5).to_html(index=False)
+        summary = "<b>Preview:</b><br>"
+        summary = test_df[used_cols].head(5).to_html(index=False)
         self.pred_summary_label.setText(summary)
         self.pred_load_encoder_btn.setEnabled(True)
         self.pred_load_encoder_btn.setStyleSheet(PREDICTION_ENABLED_STYLESHEET)
@@ -656,59 +1104,191 @@ class BespokePredictionApp(QWidget):
         self.prediction_processed_x = None
 
     def pred_select_encoder_file(self):
-        from core.preprocess import preprocess_test_data
-        enc_dir = get_writable_path(os.path.join("encoders", ""))
-        encoder_file, _ = QFileDialog.getOpenFileName(self, "Select Encoder File", enc_dir, "Pickle Files (*.pkl)")
-        if not encoder_file:
-            return
+        """Load encoder file and preprocess test data with enhanced error handling."""
         try:
+            from core.preprocess import preprocess_test_data
+            from core.errors import PreprocessingError, ValidationError
+            from core.logging_setup import get_logger
+            
+            logger = get_logger(__name__, getattr(self, "user_name", None))
+            
+            enc_dir = get_writable_path(os.path.join("encoders", ""))
+            encoder_file, _ = QFileDialog.getOpenFileName(self, "Select Encoder File", enc_dir, "Pickle Files (*.pkl)")
+            if not encoder_file:
+                return
+            
+            # Validate test data exists
+            if not hasattr(self, 'prediction_test_df') or self.prediction_test_df is None:
+                QMessageBox.warning(self, "No Test Data", "Please upload test data first.")
+                return
+            
+            logger.info(f"Loading encoder file: {encoder_file}")
+            
+            # Validate file size before loading
+            file_size = os.path.getsize(encoder_file)
+            if file_size > 50 * 1024 * 1024:  # 50MB limit
+                QMessageBox.critical(self, "File Too Large", "Encoder file is too large (>50MB). This may indicate corruption.")
+                return
+            
+            # Load encoder data with validation
             with open(encoder_file, "rb") as f:
                 enc_data = pickle.load(f)
-            encoders = enc_data['encoders']
-            features = enc_data['features']
+            
+            # Validate encoder data structure
+            required_keys = ['encoders', 'features', 'target']
+            missing_keys = [key for key in required_keys if key not in enc_data]
+            if missing_keys:
+                raise ValidationError(f"Invalid encoder file. Missing keys: {', '.join(missing_keys)}")
+            
             target = enc_data['target']
+            features = enc_data['features']
             initial_features = enc_data.get('initial_features', features)
+            encoders = enc_data['encoders']
+            feature_to_base = enc_data.get('feature_to_base', {})
+            
+            # Validate encoder data
+            if not encoders or not features:
+                raise ValidationError("Encoder file contains empty encoders or features")
+            
+            if not isinstance(features, list) or not isinstance(target, str):
+                raise ValidationError("Invalid data types in encoder file")
+            
             test_df = self.prediction_test_df.copy()
 
+            for col in initial_features:
+                if col.endswith('_missing') and col not in test_df.columns:
+                    orig_col = col[:-8]  # remove '_missing'
+                    if orig_col in test_df.columns:
+                        test_df[col] = test_df[orig_col].isnull()
+                    else:
+                        # If original column missing, fill entire column as True (all missing)
+                        test_df[col] = True
+            
+            # Validate test data
+            if test_df.empty:
+                raise ValidationError("Test data is empty")
+            
+            # Check if required columns exist in test data
+            missing_cols = [col for col in initial_features if col not in test_df.columns]
+            if missing_cols:
+                raise ValidationError(
+                    f"Test data is missing required columns: {', '.join(missing_cols)}",
+                    f"Available columns: {', '.join(test_df.columns.tolist())}"
+                )
+            
             threshold = int(0.5 * len(test_df.columns))
             initial_row_count = len(test_df)
             test_df_cleaned = test_df[test_df.isnull().sum(axis=1) <= threshold].copy()
             removed_rows = initial_row_count - len(test_df_cleaned)
+            
+            if len(test_df_cleaned) == 0:
+                raise ValidationError("All test data rows were removed due to missing values")
+            
             if removed_rows > 0:
                 QMessageBox.information(self, "Rows Removed", f"{removed_rows} rows were removed from your test data due to having more than 50% missing values.")
-
-            processed_test_df = preprocess_test_data(test_df_cleaned, encoders, features, target_col=target)
-
+            
+            # Preprocess test data
+            processed_test_df = preprocess_test_data(
+                test_df_cleaned,
+                encoders,
+                features,
+                feature_to_base,
+                target_col=target
+            )
+            
+            if processed_test_df.empty:
+                raise PreprocessingError("Preprocessing resulted in empty test data")
+            
+            # Store preprocessing results
             self.prediction_features = features
             self.prediction_target = target
             self.prediction_encoders = encoders
             self.prediction_processed_x = processed_test_df
-            QMessageBox.information(self, "Success", "Test data preprocessed successfully!\nYou can now load a model and generate predictions.")
+            
+            logger.info(f"Test data preprocessed successfully. Shape: {processed_test_df.shape}")
+            
+            QMessageBox.information(self, "Success", f"Test data preprocessed successfully!\nProcessed {len(processed_test_df)} rows with {len(features)} features.\nYou can now load a model and generate predictions.")
+            
             self.pred_load_model_btn.setEnabled(True)
             self.pred_load_model_btn.setStyleSheet(PREDICTION_ENABLED_STYLESHEET)
             self.pred_save_btn.setEnabled(False)
             self.pred_save_btn.setStyleSheet(PREDICTION_DISABLED_STYLESHEET)
+            
+        except FileNotFoundError:
+            QMessageBox.critical(self, "File Error", "The selected encoder file was not found.")
+        except (pickle.UnpicklingError, EOFError):
+            QMessageBox.critical(self, "Corrupt File", "Could not load the encoder file. It may be corrupted or incompatible.")
+        except PermissionError:
+            QMessageBox.critical(self, "Permission Error", "Permission denied when accessing the encoder file.")
+        except ValidationError as e:
+            QMessageBox.critical(self, "Validation Error", f"{e.message}\n\n{e.details or ''}")
+        except PreprocessingError as e:
+            QMessageBox.critical(self, "Preprocessing Error", f"{e.message}\n\n{e.details or ''}")
         except Exception as e:
+            from core.errors import handle_error
+            import logging
+            handle_error(e, "encoder_loading", logging.getLogger(__name__))
             log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
-            QMessageBox.critical(self, "Error", f"Failed to preprocess test data:\n{e}")
+            QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred:\n{str(e)}")
 
     def pred_select_model_file(self):
-        model_dir = get_writable_path(os.path.join("models", ""))
-        model_file, _ = QFileDialog.getOpenFileName(self, "Select Model File", model_dir, "Pickle Files (*.pkl)")
-        if not model_file:
-            return
+        """Load model file and generate predictions with enhanced error handling."""
         try:
+            from core.errors import PredictionError, ValidationError
+            from core.logging_setup import get_logger
+            
+            logger = get_logger(__name__, getattr(self, "user_name", None))
+            
+            model_dir = get_writable_path(os.path.join("models", ""))
+            model_file, _ = QFileDialog.getOpenFileName(self, "Select Model File", model_dir, "Pickle Files (*.pkl)")
+            if not model_file:
+                return
+            
+            # Validate prerequisites
+            if not hasattr(self, 'prediction_processed_x') or self.prediction_processed_x is None:
+                QMessageBox.warning(self, "No Processed Data", "Please load and process test data with encoders first.")
+                return
+            
+            logger.info(f"Loading model file: {model_file}")
+            
+            # Validate file size before loading
+            file_size = os.path.getsize(model_file)
+            if file_size > 100 * 1024 * 1024:  # 100MB limit for models
+                QMessageBox.critical(self, "File Too Large", "Model file is too large (>100MB). This may indicate corruption.")
+                return
+            
+            # Load model with validation
             with open(model_file, "rb") as f:
                 model = pickle.load(f)
-        except Exception as e:
-            log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
-            QMessageBox.critical(self, "Error", f"Failed to load model file:\n{e}")
-            return
+            
+            # Validate model object
+            if not hasattr(model, 'predict'):
+                raise ValidationError("Loaded object is not a valid machine learning model (missing predict method)")
+            
+            logger.info("Model loaded successfully, starting predictions")
 
-        try:
+            # Generate predictions with validation
             prediction_type = "classification" if self.prediction_type.startswith("Yes/No") else "regression"
+            
+            # Validate input data shape
+            expected_features = len(self.prediction_features)
+            actual_features = self.prediction_processed_x.shape[1]
+            if actual_features != expected_features:
+                raise PredictionError(
+                    f"Feature count mismatch. Expected {expected_features}, got {actual_features}",
+                    "The model and processed data have incompatible feature dimensions"
+                )
+            
+            # Generate predictions
             preds = model.predict(self.prediction_processed_x)
-
+            
+            # Validate predictions
+            if preds is None or len(preds) == 0:
+                raise PredictionError("Model returned empty predictions")
+            
+            if len(preds) != len(self.prediction_processed_x):
+                raise PredictionError("Prediction count doesn't match input data count")
+            
             result_df = self.prediction_test_df.copy()
 
             class_names = None
@@ -716,43 +1296,77 @@ class BespokePredictionApp(QWidget):
                 target_encoder = self.prediction_encoders.get(self.prediction_target)
                 if target_encoder and hasattr(target_encoder, "inverse_transform"):
                     try:
+                        # Validate predictions are within expected range
+                        if hasattr(target_encoder, "classes_"):
+                            max_class = len(target_encoder.classes_) - 1
+                            if any(pred < 0 or pred > max_class for pred in preds):
+                                logger.warning("Some predictions are outside expected class range")
+                        
                         preds = target_encoder.inverse_transform(preds)
                         if hasattr(target_encoder, "classes_"):
                             class_names = target_encoder.classes_
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Failed to inverse transform predictions: {e}")
 
             result_df["Prediction"] = preds
 
+            # Add probability columns for classification
             if prediction_type == "classification" and hasattr(model, "predict_proba"):
-                proba = model.predict_proba(self.prediction_processed_x)
+                try:
+                    proba = model.predict_proba(self.prediction_processed_x)
+                    
+                    # Validate probabilities
+                    if proba is not None and len(proba) > 0:
+                        if class_names is None and hasattr(model, "classes_"):
+                            class_names = model.classes_
 
-                if class_names is None and hasattr(model, "classes_"):
-                    class_names = model.classes_
-
-                if class_names is not None:
-                    if len(class_names) == 2:
-                        pos_class = class_names[1]
-                        if proba.shape[1] == 2:
-                            result_df[f"Probability_{pos_class} (%)"] = (proba[:, 1] * 100).round(2)
-                        elif proba.shape[1] == 1:
-                            result_df[f"Probability_{pos_class} (%)"] = (proba[:, 0] * 100).round(2)
-                    else:
-                        for idx, cname in enumerate(class_names):
-                            if idx < proba.shape[1]:
-                                result_df[f"Probability_{cname} (%)"] = (proba[:, idx] * 100).round(2)
-                else:
-                    for i in range(proba.shape[1]):
-                        result_df[f"Probability_Class_{i} (%)"] = (proba[:, i] * 100).round(2)
+                        if class_names is not None:
+                            if len(class_names) == 2:
+                                pos_class = class_names[1]
+                                if proba.shape[1] == 2:
+                                    result_df[f"Probability_{pos_class} (%)"] = (proba[:, 1] * 100).round(2)
+                                elif proba.shape[1] == 1:
+                                    result_df[f"Probability_{pos_class} (%)"] = (proba[:, 0] * 100).round(2)
+                            else:
+                                for idx, cname in enumerate(class_names):
+                                    if idx < proba.shape[1]:
+                                        result_df[f"Probability_{cname} (%)"] = (proba[:, idx] * 100).round(2)
+                        else:
+                            for i in range(proba.shape[1]):
+                                result_df[f"Probability_Class_{i} (%)"] = (proba[:, i] * 100).round(2)
+                except Exception as e:
+                    logger.warning(f"Failed to generate prediction probabilities: {e}")
 
             self.prediction_result_df = result_df
+            
+            logger.info(f"Predictions generated successfully for {len(result_df)} samples")
+            
             self.show_predictions_table(result_df.head(100))
             self.pred_save_btn.setEnabled(True)
             self.pred_save_btn.setStyleSheet(PREDICTION_ENABLED_STYLESHEET)
+            
+            QMessageBox.information(
+                self, 
+                "Success", 
+                f"Predictions generated successfully!\n{len(result_df)} predictions created.\nShowing first 100 rows in the table."
+            )
 
+        except FileNotFoundError:
+            QMessageBox.critical(self, "File Error", "The selected model file was not found.")
+        except (pickle.UnpicklingError, EOFError):
+            QMessageBox.critical(self, "Corrupt File", "Could not load the model file. It may be corrupted or incompatible.")
+        except PermissionError:
+            QMessageBox.critical(self, "Permission Error", "Permission denied when accessing the model file.")
+        except ValidationError as e:
+            QMessageBox.critical(self, "Validation Error", f"{e.message}\n\n{e.details or ''}")
+        except PredictionError as e:
+            QMessageBox.critical(self, "Prediction Error", f"{e.message}\n\n{e.details or ''}")
         except Exception as e:
+            from core.errors import handle_error
+            import logging
+            handle_error(e, "model_prediction", logging.getLogger(__name__))
             log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
-            QMessageBox.critical(self, "Error", f"Failed to generate predictions:\n{e}")
+            QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred during prediction:\n{str(e)}")
 
 
     def show_predictions_table(self, df):
@@ -961,23 +1575,50 @@ class BespokePredictionApp(QWidget):
         self.reset_prediction_tab()
 
     def open_csv(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "Open CSV File", "", "CSV Files (*.csv)")
+        """Load data file using secure data loader with comprehensive error handling."""
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Open Data File", 
+            "", 
+            "Data Files (*.csv *.xlsx *.xls);;CSV Files (*.csv);;Excel Files (*.xlsx *.xls)"
+        )
         if file_name:
             try:
-                self.df = pd.read_csv(file_name)
+                from core.data_loader import load_data_file
+                from core.errors import DataLoadingError, ValidationError, SecurityError
+                
+                # Use the secure data loader
+                self.df = load_data_file(file_name)
+                
                 columns = list(self.df.columns)
                 self.features_list.clear()
                 self.target_combo.clear()
                 for col in columns:
                     self.features_list.addItem(col)
                     self.target_combo.addItem(col)
+                
                 self.set_tab_enabled(1, True)
                 self.set_tab_enabled(2, False)
                 self.set_tab_enabled(3, False)
-                QMessageBox.information(self, "Success", "File loaded! Now select features and target.")
+                
+                QMessageBox.information(
+                    self, 
+                    "Success", 
+                    f"File loaded successfully!\n"
+                    f"Shape: {self.df.shape[0]} rows × {self.df.shape[1]} columns\n"
+                    f"Now select features and target column."
+                )
                 self.goto_select_tab()
+                
+            except SecurityError as e:
+                QMessageBox.critical(self, "Security Error", f"{e.message}\n\n{e.details or ''}")
+            except DataLoadingError as e:
+                QMessageBox.critical(self, "File Loading Error", f"{e.message}\n\n{e.details or ''}")
+            except ValidationError as e:
+                QMessageBox.critical(self, "Data Validation Error", f"{e.message}\n\n{e.details or ''}")
             except Exception as e:
+                from core.errors import handle_error
+                import logging
+                handle_error(e, "file_loading", logging.getLogger(__name__))
                 log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
-                QMessageBox.critical(self, "Error", f"Failed to load file:\n{e}")
-
-    
+                QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred:\n{str(e)}")

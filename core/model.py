@@ -6,6 +6,7 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, mean_squared_error, r2_score
+from core.config import Config
 
 def auto_train_and_evaluate_models(X, y, prediction_type="classification", progress_callback=None):
     if prediction_type == "classification":
@@ -14,10 +15,25 @@ def auto_train_and_evaluate_models(X, y, prediction_type="classification", progr
         return train_regression_models(X, y, progress_callback)
 
 def train_classification_models(X, y, progress_callback=None):
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    """
+    Trains multiple classification models on the provided dataset and evaluates their performance.
+
+    Parameters:
+    X (array-like): Feature matrix for training.
+    y (array-like): Target vector for training.
+    progress_callback (callable, optional): Function to call with progress updates during model training.
+
+    Returns:
+    tuple: A tuple containing:
+        - results (list of dict): A list of dictionaries with keys 'name', 'accuracy', 'f1', 'auc', and 'model',
+          representing the performance and details of each trained model.
+        - trained_models (dict): A dictionary of trained models with model names as keys.
+    """
+
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=Config.ml.TEST_SIZE, random_state=Config.ml.RANDOM_STATE, stratify=y)
     models = [
         ("Logistic Regression", LogisticRegression(max_iter=1000), {"C": [0.1, 1, 10]}),
-        ("Random Forest", RandomForestClassifier(n_estimators=100, random_state=42), {"max_depth": [None, 5, 10]}),
+        ("Random Forest", RandomForestClassifier(n_estimators=100, random_state=Config.ml.RANDOM_STATE), {"max_depth": [None, 5, 10]}),
         ("Gaussian Naive Bayes", GaussianNB(), {}),
         ("K-Nearest Neighbors", KNeighborsClassifier(), {"n_neighbors": [3, 5, 7]})
     ]
@@ -56,11 +72,33 @@ def train_classification_models(X, y, progress_callback=None):
     return results, trained_models
 
 def train_regression_models(X, y, progress_callback=None):
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+    """
+    Train multiple regression models and evaluate their performance.
+
+    This function splits the input data into training and validation sets,
+    then trains several regression models using either default parameters 
+    or hyperparameter tuning with GridSearchCV. It evaluates each model's 
+    performance on the validation set using Mean Squared Error (MSE) and 
+    R-squared (R²) score.
+
+    Args:
+        X (array-like): Features for training and validation.
+        y (array-like): Target variable for training and validation.
+        progress_callback (callable, optional): A callback function to report 
+            training progress with percentage completion and model name.
+
+    Returns:
+        results (list of dict): Sorted list of dictionaries containing model 
+            names, their MSE, R2 scores, and trained model objects.
+        trained_models (dict): Dictionary of trained models with model names 
+            as keys.
+    """
+
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=Config.ml.TEST_SIZE, random_state=Config.ml.RANDOM_STATE)
     models = [
         ("Linear Regression", LinearRegression(), {}),
         ("Ridge Regression", Ridge(), {"alpha": [0.1, 1.0, 10.0]}),
-        ("Random Forest Regressor", RandomForestRegressor(n_estimators=100, random_state=42), {"max_depth": [None, 5, 10]}),
+        ("Random Forest Regressor", RandomForestRegressor(n_estimators=100, random_state=Config.ml.RANDOM_STATE), {"max_depth": [None, 5, 10]}),
         ("K-Nearest Neighbors Regressor", KNeighborsRegressor(), {"n_neighbors": [3, 5, 7]})
     ]
     results = []
@@ -90,6 +128,17 @@ def train_regression_models(X, y, progress_callback=None):
     return results, trained_models
 
 def save_model(model, name, get_writable_path):
+    """
+    Save a trained model to a pickle file.
+
+    Args:
+        model (object): The trained model object.
+        name (str): The name to use for the saved model file.
+        get_writable_path (callable): A function that takes a directory name and returns a path to a writable directory.
+
+    Returns:
+        str: The file path where the model was saved.
+    """
     import pickle, os
     model_dir = get_writable_path("models")
     if not os.path.exists(model_dir):

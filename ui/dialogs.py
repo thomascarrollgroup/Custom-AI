@@ -2,6 +2,14 @@ from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QListWidget, QAbstract
 
 class ColumnSelectDialog(QDialog):
     def __init__(self, columns, parent=None):
+        """
+        Initialize the dialog with a list of columns to select from.
+
+        :param columns: List of column names to select from.
+        :type columns: list[str]
+        :param parent: Parent widget (optional).
+        :type parent: QWidget
+        """
         super().__init__(parent)
         self.setWindowTitle("Select Columns")
         self.setMinimumWidth(350)
