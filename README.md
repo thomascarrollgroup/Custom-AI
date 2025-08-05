@@ -11,24 +11,26 @@ TC AI Prediction Tool/
 │   ├── config.py              #  All application settings and configurations
 │   ├── data_loader.py         #  Safely loads and validates your data files
 │   ├── preprocess.py          #  Cleans and prepares data for AI models
+│   ├── data_quality.py        #  Generate business-user friendly data quality report
 │   ├── model.py               #  The AI magic-trains and evaluates models
 │   ├── errors.py              #  Custom error handling for better user experience
 │   ├── validators.py          #  Ensures your data is safe and valid
-│   ├── database_utils.py      #  Manages database connections for logging
-│   ├── logging.py             #  Records what happens for debugging
+│   ├── error_logger.py        #  Records what happens for debugging
 │   ├── logging_setup.py       #  Sets up the logging system
 │   ├── async_operations.py    #  Handles background tasks
 │   ├── model_worker.py        #  Background worker for model training
 │   ├── resource_path.py       #  Finds files and resources
-│   └── secure_config.py       #  Secure configuration management
 │
 ├── ui/                         #  The visual interface you interact with
 │   ├── app.py                 #  Main application window and all the buttons
 │   ├── styles.py              #  Makes everything look pretty
+│   ├── error_dialog           #  Pop-up Error windows
 │   └── dialogs.py             #  Pop-up windows and user interactions
 │
 ├── tests/                      #  Quality assurance and testing
-│   └── test_data_loader.py    # Tests to ensure data loading works correctly
+│   ├── simple_test.py          # just a test to ensure all latest refinements made were running smoothly
+│   ├── test_new_features.py    # To test all new features, run smoothly.
+│   └── test_data_loader.py     # Tests to ensure data loading works correctly
 │
 ├── Images/                     # Visual assets
 │   └── icon.png               # Application icon
@@ -99,7 +101,7 @@ This is a comprehensive desktop application with:
 - **Comprehensive logging** - Records everything that happens
 - **Error tracking** - Captures and reports issues
 - **Performance monitoring** - Tracks how well the application runs
-- **Database integration** - Can store logs in a Neon database for analysis
+- **Log File integration** - Can store logs in a log file, that gets emailed to the admin for handling.
 
 ## How It Works (Step by Step) 
 
@@ -124,7 +126,6 @@ This application is built with:
 - **pandas** - Handles data manipulation
 - **scikit-learn** - Provides the machine learning algorithms
 - **matplotlib** - Creates charts and visualizations
-- **PostgreSQL/Neon** - Database for logging (optional)
 
 ## Machine Learning Models Included 
 
@@ -152,11 +153,7 @@ The tool automatically tries these proven algorithms:
 1. **Install dependencies:**
    pip install -r requirements.txt
 
-2. **Set up environment (optional):**
-   - Create a `.env` file in the directory
-   - Add `NEON_CONN_STR=your_database_connection_string` for error logging
-
-3. **Run the application:**
+2. **Run the application:**
    python main.py
 
 ### First Use
@@ -220,7 +217,6 @@ The application creates detailed logs:
 - **Console logs** - Real-time feedback during use
 - **File logs** - Persistent records of all activities
 - **JSON logs** - Structured data for analysis
-- **Database logs** - Optional centralized error tracking
 
 Log files are stored in a writable directory and include:
 - User actions

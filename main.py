@@ -2,7 +2,7 @@ import sys
 import os
 from PyQt5.QtWidgets import QApplication
 from ui.app import BespokePredictionApp
-from core.logging import global_exception_hook
+from core.error_logger import log_error_to_file
 from core.logging_setup import setup_logging, get_logger
 
 if __name__ == "__main__":
@@ -14,32 +14,27 @@ if __name__ == "__main__":
         enable_json=True
     )
     
-    # Set up global exception handling
+    # Set up global exception handling with file-based logging
+    def global_exception_hook(exctype, value, tb):
+        try:
+            # Try to get user name from the main window if it exists
+            window = getattr(sys.modules['__main__'], "window", None)
+            user_name = getattr(window, "user_name", "UnknownUser") if window else "UnknownUser"
+        except Exception:
+            user_name = "UnknownUser"
+        
+        # Log error to file
+        log_error_to_file(user_name, exctype, value, tb)
+        
+        # Call the original system exception handler
+        sys.__excepthook__(exctype, value, tb)
+    
     sys.excepthook = global_exception_hook
     
     # Get logger for main application
     logger = get_logger(__name__)
     logger.info("Starting TC AI Prediction Tool")
-    
-    # Initialize and validate database connection
-    try:
-        from core.database_utils import initialize_database, get_database_status
-        
-        logger.info("Validating database configuration...")
-        db_status = get_database_status()
-        
-        if db_status['connection_string_set']:
-            if initialize_database():
-                logger.info("Neon database initialized successfully- error logging enabled")
-            else:
-                logger.warning("Neon database initialization failed- error logging to console only")
-        else:
-            logger.warning("NEON_CONN_STR not set- error logging to console only")
-            logger.info("Set NEON_CONN_STR environment variable to enable database error logging")
-            
-    except Exception as e:
-        logger.error(f"Database initialization error: {e}")
-        logger.warning("Continuing without database error logging")
+    logger.info("Application Error logging system configured successfully")
     
     try:
         app = QApplication(sys.argv)

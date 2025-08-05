@@ -1,13 +1,10 @@
-"""
-Async operations to prevent UI blocking for I/O intensive tasks.
-"""
-
 from PyQt5.QtCore import QRunnable, QObject, pyqtSignal, QThreadPool
 from PyQt5.QtWidgets import QApplication
 import pandas as pd
 from typing import Callable, Any, Optional, Dict
 import traceback
 import time
+import numpy as np
 from pathlib import Path
 
 from core.data_loader import load_data_file
@@ -262,17 +259,106 @@ def get_async_manager() -> AsyncManager:
     return _async_manager
 
 
-def process_large_dataset_in_chunks(df: pd.DataFrame, chunk_size: int = None) -> pd.DataFrame:
-    """Process large datasets in chunks to manage memory."""
+def process_large_dataset_in_chunks(df: pd.DataFrame, chunk_size: int = None, 
+                                   operation_func: Callable = None, **kwargs) -> pd.DataFrame:
+    """
+    Process large datasets in chunks to manage memory.
+    
+    Args:
+        df: DataFrame to process
+        chunk_size: Size of each chunk (default from config)
+        operation_func: Function to apply to each chunk
+        **kwargs: Additional arguments for operation_func
+    
+    Returns:
+        Processed DataFrame or combined results
+    """
     if chunk_size is None:
         from core.config import Config
-        chunk_size = Config.ui.CHUNK_SIZE
+        chunk_size = getattr(Config.ui, 'CHUNK_SIZE', 10000)  # Default to 10k if not configured
     
     if len(df) <= chunk_size:
+        if operation_func:
+            return operation_func(df, **kwargs)
         return df
     
     logger = get_logger(__name__)
     logger.info(f"Processing large dataset ({len(df)} rows) in chunks of {chunk_size}")
     
-    logger.warning(f"Dataset truncated to {chunk_size} rows for performance")
-    return df.head(chunk_size)
+    if operation_func is None:
+        # If no operation function provided, just return a sample
+        logger.warning(f"Dataset sampled to {chunk_size} rows for performance")
+        return df.sample(n=min(chunk_size, len(df)), random_state=42)
+    
+    # Process in chunks
+    results = []
+    total_chunks = (len(df) + chunk_size - 1) // chunk_size
+    
+    for i in range(0, len(df), chunk_size):
+        chunk_num = i // chunk_size + 1
+        logger.info(f"Processing chunk {chunk_num}/{total_chunks}")
+        
+        chunk = df.iloc[i:i + chunk_size]
+        try:
+            result = operation_func(chunk, **kwargs)
+            if result is not None:
+                results.append(result)
+        except Exception as e:
+            logger.error(f"Error processing chunk {chunk_num}: {e}")
+            continue
+    
+    if results:
+        # Combine results if they are DataFrames
+        if isinstance(results[0], pd.DataFrame):
+            return pd.concat(results, ignore_index=True)
+        else:
+            return results
+    else:
+        logger.warning("No results from chunk processing")
+        return df.head(0)  # Return empty DataFrame with same structure
+
+
+def optimize_dataframe_memory(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Optimize DataFrame memory usage by downcasting numeric types.
+    
+    Args:
+        df: DataFrame to optimize
+        
+    Returns:
+        Memory-optimized DataFrame
+    """
+    logger = get_logger(__name__)
+    original_memory = df.memory_usage(deep=True).sum()
+    
+    # Create a copy to avoid modifying original
+    optimized_df = df.copy()
+    
+    # Optimize numeric columns
+    for col in optimized_df.select_dtypes(include=['int64']).columns:
+        col_min = optimized_df[col].min()
+        col_max = optimized_df[col].max()
+        
+        if col_min >= np.iinfo(np.int8).min and col_max <= np.iinfo(np.int8).max:
+            optimized_df[col] = optimized_df[col].astype(np.int8)
+        elif col_min >= np.iinfo(np.int16).min and col_max <= np.iinfo(np.int16).max:
+            optimized_df[col] = optimized_df[col].astype(np.int16)
+        elif col_min >= np.iinfo(np.int32).min and col_max <= np.iinfo(np.int32).max:
+            optimized_df[col] = optimized_df[col].astype(np.int32)
+    
+    for col in optimized_df.select_dtypes(include=['float64']).columns:
+        optimized_df[col] = pd.to_numeric(optimized_df[col], downcast='float')
+    
+    # Convert object columns to category where appropriate
+    for col in optimized_df.select_dtypes(include=['object']).columns:
+        if optimized_df[col].nunique() / len(optimized_df) < 0.5:  # Less than 50% unique values
+            optimized_df[col] = optimized_df[col].astype('category')
+    
+    new_memory = optimized_df.memory_usage(deep=True).sum()
+    memory_reduction = (original_memory - new_memory) / original_memory * 100
+    
+    if memory_reduction > 5:  # Only log if significant reduction
+        logger.info(f"Memory usage reduced by {memory_reduction:.1f}% "
+                   f"({original_memory / 1024 / 1024:.1f}MB -> {new_memory / 1024 / 1024:.1f}MB)")
+    
+    return optimized_df

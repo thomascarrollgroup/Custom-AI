@@ -44,7 +44,10 @@ def auto_preprocess_data(
     2. A dictionary of encoders used for each column
     3. A list of columns that were processed (i.e. not the target column)
     4. A dictionary mapping each feature to its base column (for one-hot encoded columns)
+    
+    Memory optimization: Uses in-place operations where possible to reduce memory usage.
     """
+    # Create a copy only once at the beginning
     df = df.copy()
     encoders: Dict[str, Any] = {}
     processed_cols: List[str] = []
@@ -73,19 +76,21 @@ def auto_preprocess_data(
             continue
 
         if pd.api.types.is_numeric_dtype(df[col]):
+            # Use in-place operations to reduce memory usage
             imputer = SimpleImputer(strategy='mean')
-            df[col] = imputer.fit_transform(df[[col]]).ravel()
+            df.loc[:, col] = imputer.fit_transform(df[[col]]).ravel()
             encoders[col + "_imputer"] = imputer
 
             scaler = StandardScaler()
-            df[col] = scaler.fit_transform(df[[col]]).ravel()
+            df.loc[:, col] = scaler.fit_transform(df[[col]]).ravel()
             encoders[col] = scaler
             processed_cols.append(col)
             feature_to_base[col] = col
 
         else:
+            # Use in-place operations to reduce memory usage
             imputer = SimpleImputer(strategy='most_frequent')
-            df[col] = imputer.fit_transform(df[[col]]).ravel()
+            df.loc[:, col] = imputer.fit_transform(df[[col]]).ravel()
             encoders[col + "_imputer"] = imputer
 
             nunique = df[col].nunique(dropna=True)
@@ -102,8 +107,9 @@ def auto_preprocess_data(
                     feature_to_base[ohe_col] = col
             else:
                 le = LabelEncoder()
-                df[col] = df[col].astype(str)
-                df[col] = le.fit_transform(df[col])
+                # Use in-place operations to reduce memory usage
+                df.loc[:, col] = df[col].astype(str)
+                df.loc[:, col] = le.fit_transform(df[col])
                 encoders[col] = le
                 processed_cols.append(col)
                 feature_to_base[col] = col
@@ -214,4 +220,3 @@ def preprocess_test_data(
                 processed[feat] = Config.ml.NUMERIC_IMPUTE_VALUE
 
     return processed[features]
-

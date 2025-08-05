@@ -1,4 +1,3 @@
-
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel,
     QMessageBox, QListWidget, QAbstractItemView, QComboBox, QTabWidget, QTableWidget,
@@ -11,7 +10,8 @@ import requests
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from ui.styles import BUTTON_STYLESHEET, TAB_STYLESHEET, COMBOBOX_STYLESHEET, PREDICTION_ENABLED_STYLESHEET, PREDICTION_DISABLED_STYLESHEET
 from ui.dialogs import ColumnSelectDialog
-from core.logging import log_error_to_neon
+from core.error_logger import log_error_to_file, get_error_logger
+from ui.error_dialog import show_error_dialog
 from core.resource_path import resource_path, get_writable_path
 from core.model import auto_train_and_evaluate_models, save_model
 from core.preprocess import auto_preprocess_data
@@ -49,6 +49,10 @@ class BespokePredictionApp(QWidget):
         self.df = None
         self.selected_features = []
         self.background_image = QPixmap(resource_path("Images/wire-svg.svg"))
+        
+        # Initialize error logging with configurable admin email
+        self.admin_email = "admin@company.com"  # Configure this as needed
+        self.error_logger = get_error_logger(self.admin_email)
 
         self.stacked_layout = QStackedLayout(self)
         self.init_login_page()
@@ -152,6 +156,33 @@ class BespokePredictionApp(QWidget):
             painter.setOpacity(0.08)
             painter.drawPixmap(self.rect(), self.background_image)
         super().paintEvent(event)
+
+    def handle_error_with_popup(self, exc_type: type, exc_value: Exception, tb):
+        """Handle errors by logging to file and showing popup dialog."""
+        try:
+            # Log error to file
+            error_details = log_error_to_file(
+                self.user_name or "Unknown", 
+                exc_type, 
+                exc_value, 
+                tb, 
+                self.admin_email
+            )
+            
+            # Show error popup dialog
+            show_error_dialog(
+                error_details,
+                self.error_logger.get_log_file_path(),
+                self.admin_email,
+                self
+            )
+        except Exception as e:
+            # Fallback error handling
+            QMessageBox.critical(
+                self, 
+                "Critical Error", 
+                f"A critical error occurred:\n{str(exc_value)}\n\nAdditional error in error handling: {str(e)}"
+            )
 
     def handle_login(self):
         """
@@ -346,272 +377,230 @@ class BespokePredictionApp(QWidget):
     def prediction_type(self):
         return self.prediction_type_combo.currentText()
     
-    def run_data_analyst(self):
+    def run_data_quality_analysis(self):
         """
-        Generate and execute data analysis code using LLM with enhanced security measures.
+        Generate comprehensive business-friendly data quality report with interactive visualizations.
         """
-        question = self.analyst_question_input.text().strip()
-        if not question:
-            QMessageBox.warning(self, "Input Required", "Please enter a question about your data.")
-            return
         if self.df is None:
             QMessageBox.warning(self, "No Data", "Please load a dataset first.")
             return
 
-        # Basic input validation and sanitization
-        if len(question) > 1000:  # Limit question length
-            QMessageBox.warning(self, "Input Too Long", "Please keep your question under 1000 characters.")
-            return
-        
-        # Check for potentially dangerous keywords in the question
-        dangerous_keywords = ['import os', 'import sys', '__import__', 'eval(', 'exec(', 'open(', 'file(', 'subprocess', 'system']
-        question_lower = question.lower()
-        if any(keyword in question_lower for keyword in dangerous_keywords):
-            from core.logging_setup import log_security_event
-            log_security_event(
-                "suspicious_query", 
-                f"User attempted potentially dangerous query: {question[:100]}...",
-                user_name=getattr(self, "user_name", None)
-            )
-            QMessageBox.warning(self, "Invalid Query", "Your question contains potentially unsafe content. Please rephrase your data analysis question.")
-            return
-
-        self.analyst_output.setText("Thinking...")
-        QApplication.processEvents()
-
         try:
-            load_dotenv()
-            GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-            if not GROQ_API_KEY:
-                self.analyst_output.setText("<span style='color:red;'>Error: GROQ_API_KEY environment variable not set.</span>")
-                return
-
-            # Enhanced system prompt with security constraints
-            system_prompt = (
-                "You are an expert Python data analyst. A pandas DataFrame named `df` is available.\n"
-                "Write Python code that answers the user's question using ONLY `df`, pandas, numpy, matplotlib, and seaborn.\n"
-                "IMPORTANT SECURITY CONSTRAINTS:\n"
-                "- NEVER import os, sys, subprocess, or any system modules\n"
-                "- NEVER use eval(), exec(), open(), or file operations\n"
-                "- NEVER access anything outside the provided DataFrame\n"
-                "- Only use matplotlib for plotting (plt.show() to display)\n"
-                "- Assign final results to a variable called `result`\n"
-                "- Keep code simple and focused on data analysis only\n"
-                "Do not include print statements or explanations. Return only the code."
-            )
-
-            response = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-                json={
-                    "model": "llama3-8b-8192",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": question}
-                    ],
-                    "temperature": 0.3,
-                    "max_tokens": 1000  # Limit response length
-                },
-                timeout=30
-            )
-
-            response_json = response.json()
-
-            if response.status_code != 200:
-                error_msg = response_json.get("error", {}).get("message", str(response_json))
-                self.analyst_output.setText(f"<span style='color:red;'>Groq API error: {error_msg}</span>")
-                return
-
-            if "choices" not in response_json:
-                self.analyst_output.setText(f"<span style='color:red;'>Unexpected API response: {response_json}</span>")
-                return
-
-            code = response_json["choices"][0]["message"]["content"]
-            code = code.strip("```python\n").strip("```").strip()
-
-            # Enhanced code validation before execution
-            if not self._validate_generated_code(code):
-                from core.logging_setup import log_security_event
-                log_security_event(
-                    "dangerous_code_generation", 
-                    f"LLM generated potentially dangerous code for question: {question[:100]}...",
-                    user_name=getattr(self, "user_name", None)
-                )
-                self.analyst_output.setText("<span style='color:red;'>Generated code failed security validation. Please try rephrasing your question.</span>")
-                return
-
-            # Create secure execution environment
-            safe_globals = {
-                "__builtins__": {
-                    # Allow only safe built-in functions
-                    "len": len, "range": range, "enumerate": enumerate, "zip": zip,
-                    "min": min, "max": max, "sum": sum, "abs": abs, "round": round,
-                    "sorted": sorted, "reversed": reversed, "str": str, "int": int,
-                    "float": float, "bool": bool, "list": list, "dict": dict, "set": set,
-                    "tuple": tuple, "type": type, "isinstance": isinstance, "hasattr": hasattr
-                }
-            }
+            from core.data_quality import InteractiveBusinessDataQuality
             
-            # Add safe imports to the environment
-            import pandas as pd
-            import numpy as np
-            import matplotlib.pyplot as plt
-            import seaborn as sns
+            self.analyst_output.setText("Analyzing your data quality... This may take a moment.")
+            QApplication.processEvents()
+
+            # Create business-friendly data quality analyzer
+            self.data_quality = InteractiveBusinessDataQuality(self.df)
             
-            local_vars = {
-                "df": self.df.copy(),  # Use a copy to prevent modification
-                "pd": pd,
-                "np": np, 
-                "plt": plt,
-                "sns": sns
-            }
-
-            # Custom show function for plot display
-            def custom_show():
-                buf = io.BytesIO()
-                plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-                buf.seek(0)
-                img_b64 = base64.b64encode(buf.read()).decode('utf-8')
-                buf.close()
-                plt.close()
-                self.analyst_output.append(f'<img src="data:image/png;base64,{img_b64}"/>')
-
-            plt.show = custom_show
-
-            try:
-                import concurrent.futures
-
-                def exec_with_timeout():
-                    exec(code, safe_globals, local_vars)
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(exec_with_timeout)
-                    future.result(timeout=5)  # seconds
-
-                
-                result = local_vars.get("result", None)
-                if result is not None:
-                    self.analyst_output.append(f"<pre>{str(result)}</pre>")
-                    
-                # Log successful execution
-                from core.logging_setup import get_logger
-                logger = get_logger(__name__, getattr(self, "user_name", None))
-                logger.info(f"Successfully executed LLM-generated code for question: {question[:100]}...")
-                    
-            except TimeoutError:
-                self.analyst_output.append("<span style='color:red;'>Code execution timed out (5 second limit)</span>")
-            except Exception as e:
-                self.analyst_output.append(f"<span style='color:red;'>Error executing code: {e}</span>")
-                from core.errors import handle_error
-                import logging
-                handle_error(e, "llm_code_execution", logging.getLogger(__name__))
-
-        except requests.exceptions.Timeout:
-            self.analyst_output.setText("Request timed out. Please check your network connection.")
-        except requests.exceptions.ConnectionError:
-            self.analyst_output.setText("Unable to connect to the Groq API. Please check your internet.")
-        except requests.exceptions.RequestException as e:
-            self.analyst_output.setText(f"Request failed: {e}")
+            # Display business-friendly summary report
+            summary_report = self.data_quality.get_business_summary()
+            self.analyst_output.setPlainText(summary_report)
+            
+            # Add chart selection and export buttons
+            self._add_chart_selection_buttons()
+            self._add_export_button()
+            
         except Exception as e:
-            from core.errors import handle_error
-            import logging
-            handle_error(e, "data_analysis", logging.getLogger(__name__))
-            log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
-            self.analyst_output.setText(f"Unexpected error: {e}")
-
-    def _validate_generated_code(self, code: str) -> bool:
-        """Validate generated code for security risks before execution."""
-        # Convert to lowercase for case-insensitive checking
-        code_lower = code.lower()
+            self.handle_error_with_popup(type(e), e, sys.exc_info()[2])
+            self.analyst_output.setText(f"Error during data quality analysis: {str(e)}")
+    
+    def _add_chart_selection_buttons(self):
+        """Add interactive chart selection buttons to the quality tab."""
+        # Clear existing chart buttons if any
+        if hasattr(self, 'chart_buttons_widget'):
+            self.chart_buttons_widget.setParent(None)
         
-        # List of dangerous patterns to block
-        dangerous_patterns = [
-            # System access
-            'import os', 'import sys', 'import subprocess', 'import shutil', 'import glob',
-            'from os', 'from sys', 'from subprocess', 'from shutil',
-            '__import__', 'importlib',
-            
-            # File operations
-            'open(', 'file(', 'with open', 'io.', 'pathlib', 'tempfile',
-            
-            # Code execution
-            'eval(', 'exec(', 'compile(', 'globals()', 'locals()', 'vars()',
-            
-            # Network access
-            'urllib', 'requests', 'socket', 'http', 'ftp',
-            
-            # Process/system control
-            'subprocess', 'system(', 'popen(', 'spawn',
-            
-            # Dangerous built-ins
-            'getattr(', 'setattr(', 'delattr(', 'hasattr(',
-            '__getattribute__', '__setattr__', '__delattr__',
-            
-            # Environment access
-            'environ', 'getenv', 'putenv',
-            
-            # Pickle/serialization (potential code execution)
-            'pickle', 'dill', 'joblib.load', 'joblib.dump',
-            
-            # Database connections (beyond pandas)
-            'sqlite3', 'psycopg2', 'pymongo', 'sqlalchemy',
-        ]
+        # Create chart selection widget
+        self.chart_buttons_widget = QWidget()
+        chart_layout = QHBoxLayout(self.chart_buttons_widget)
+        chart_layout.setContentsMargins(0, 10, 0, 10)
         
-        # Check for dangerous patterns
-        for pattern in dangerous_patterns:
-            if pattern in code_lower:
-                return False
+        chart_label = QLabel("View Charts:")
+        chart_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        chart_layout.addWidget(chart_label)
         
-        # Check for attempts to access private/protected attributes
-        if '__' in code and ('__builtins__' in code_lower or '__globals__' in code_lower):
-            return False
-            
-        # Limit code length (prevent overly complex code)
-        if len(code) > 2000:  # 2000 characters max
-            return False
+        # Get available chart options
+        chart_options = self.data_quality.get_chart_options()
         
-        # Basic syntax validation
+        for chart_key, chart_name in chart_options.items():
+            if chart_key != 'overview':  # Skip overview as it's text-based
+                btn = QPushButton(chart_name)
+                btn.setStyleSheet(BUTTON_STYLESHEET)
+                btn.clicked.connect(lambda checked, key=chart_key: self._show_chart(key))
+                chart_layout.addWidget(btn)
+        
+        chart_layout.addStretch()
+        
+        # Add to quality tab layout
+        quality_layout = self.quality_tab.layout()
+        quality_layout.insertWidget(quality_layout.count() - 1, self.chart_buttons_widget)
+    
+    def _show_chart(self, chart_type: str):
+        """Display selected chart type."""
         try:
-            compile(code, '<string>', 'exec')
-        except SyntaxError:
-            return False
+            if not hasattr(self, 'data_quality'):
+                QMessageBox.warning(self, "No Analysis", "Please run data quality analysis first.")
+                return
+            
+            # Create the chart
+            fig = self.data_quality.create_chart(chart_type)
+            if fig is None:
+                QMessageBox.warning(self, "Chart Error", f"Could not create {chart_type} chart.")
+                return
+            
+            # Create a new dialog to display the chart
+            from PyQt5.QtWidgets import QDialog, QVBoxLayout
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"Data Quality - {self.data_quality.get_chart_options()[chart_type]}")
+            dialog.setMinimumSize(800, 600)
+            
+            layout = QVBoxLayout(dialog)
+            
+            # Add matplotlib canvas
+            canvas = FigureCanvas(fig)
+            layout.addWidget(canvas)
+            
+            # Add close button
+            close_btn = QPushButton("Close")
+            close_btn.setStyleSheet(BUTTON_STYLESHEET)
+            close_btn.clicked.connect(dialog.accept)
+            layout.addWidget(close_btn)
+            
+            dialog.exec_()
+            
+        except Exception as e:
+            self.handle_error_with_popup(type(e), e, sys.exc_info()[2])
+            QMessageBox.critical(self, "Chart Error", f"Error displaying chart: {str(e)}")
+    
+    def _add_export_button(self):
+        """Add export functionality button to the quality tab."""
+        # Create export button widget
+        if hasattr(self, 'export_button_widget'):
+            self.export_button_widget.setParent(None)
         
-        return True
+        self.export_button_widget = QWidget()
+        export_layout = QHBoxLayout(self.export_button_widget)
+        export_layout.setContentsMargins(0, 10, 0, 10)
+        
+        export_label = QLabel("Export Report:")
+        export_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        export_layout.addWidget(export_label)
+        
+        # Export to Excel button
+        export_btn = QPushButton("Save Detailed Report (Excel)")
+        export_btn.setStyleSheet(BUTTON_STYLESHEET)
+        export_btn.clicked.connect(self._export_data_quality_report)
+        export_layout.addWidget(export_btn)
+        
+        export_layout.addStretch()
+        
+        # Add to quality tab layout
+        quality_layout = self.quality_tab.layout()
+        quality_layout.insertWidget(quality_layout.count() - 1, self.export_button_widget)
+    
+    def _export_data_quality_report(self):
+        """Export comprehensive data quality report with highlighted issues."""
+        try:
+            if not hasattr(self, 'data_quality'):
+                QMessageBox.warning(self, "No Analysis", "Please run data quality analysis first.")
+                return
+            
+            # Get save location from user
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Data Quality Report",
+                f"data_quality_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                "Excel files (*.xlsx);;All files (*.*)"
+            )
+            
+            if file_path:
+                # Show progress
+                progress = QProgressDialog("Generating comprehensive report...", "Cancel", 0, 100, self)
+                progress.setWindowModality(Qt.WindowModal)
+                progress.show()
+                progress.setValue(25)
+                QApplication.processEvents()
+                
+                # Export the report
+                success = self.data_quality.export_business_report(file_path)
+                
+                progress.setValue(100)
+                progress.close()
+                
+                if success:
+                    # Show success message with details
+                    msg = QMessageBox(self)
+                    msg.setIcon(QMessageBox.Information)
+                    msg.setWindowTitle("Export Successful")
+                    msg.setText("Data Quality Report exported successfully!")
+                    msg.setInformativeText(
+                        f"Report saved to: {file_path}\n\n"
+                        "The Excel file contains:\n"
+                        "• Executive Summary with key metrics\n"
+                        "• Your data with issues highlighted in color\n"
+                        "• Detailed analysis and recommendations\n\n"
+                        "Legend:\n"
+                        "🔴 Red cells = Missing data\n"
+                        "🟡 Yellow cells = Unusual values\n"
+                        "🔵 Blue rows = Duplicate records"
+                    )
+                    msg.exec_()
+                else:
+                    QMessageBox.warning(self, "Export Failed", 
+                                      "Failed to export the report. Please check file permissions and try again.")
+                
+        except Exception as e:
+            self.handle_error_with_popup(type(e), e, sys.exc_info()[2])
+            QMessageBox.warning(self, "Export Error", f"Error exporting report: {str(e)}")
 
     def init_quality_tab(self):
         """
         Initializes the quality tab UI.
 
-        Sets up the layout and style for the quality tab, including a title, a
-        text input field for the user to enter a question about their data, a
-        button to run the data analyst, and a read-only text area to display the
-        output of the data analyst. The button is connected to the run_data_analyst
-        method to handle user input.
+        Sets up the layout and style for the quality tab with data quality analysis
+        functionality that provides comprehensive reporting and interactive visualizations.
 
         :return: None
         """
         layout = QVBoxLayout()
         layout.setContentsMargins(30, 20, 30, 20)
         layout.setSpacing(20)
-        title = QLabel("AI Data Analyst")
+        
+        title = QLabel("Data Quality Analysis")
         title.setStyleSheet("font-size: 20px; font-weight: bold; margin-bottom: 10px;")
         layout.addWidget(title)
 
-        self.analyst_question_input = QLineEdit()
-        self.analyst_question_input.setPlaceholderText("Ask a question about your data (e.g. 'Show me a histogram of Age')")
-        self.analyst_question_input.setStyleSheet("font-size: 16px; padding: 8px;")
-        layout.addWidget(self.analyst_question_input)
+        # Description
+        description = QLabel("Get a clear, business-friendly assessment of your data's health and reliability. We'll identify missing information, inconsistencies, and unusual patterns that could affect your analysis - all explained in plain language with actionable recommendations.")
+        description.setWordWrap(True)
+        description.setStyleSheet("font-size: 14px; color: #666; margin-bottom: 15px;")
+        layout.addWidget(description)
 
-        self.analyst_run_btn = QPushButton("Get Analysis")
+        # Analysis button
+        self.analyst_run_btn = QPushButton("Check My Data Health")
         self.analyst_run_btn.setStyleSheet(BUTTON_STYLESHEET)
-        self.analyst_run_btn.clicked.connect(self.run_data_analyst)
+        self.analyst_run_btn.clicked.connect(self.run_data_quality_analysis)
         layout.addWidget(self.analyst_run_btn)
 
+        # Output area for text report
         self.analyst_output = QTextEdit()
         self.analyst_output.setReadOnly(True)
-        self.analyst_output.setStyleSheet("font-size: 15px; background: #fff;")
+        self.analyst_output.setStyleSheet("""
+            QTextEdit {
+                font-family: 'Courier New', monospace;
+                font-size: 13px; 
+                background: #f8f9fa; 
+                border: 1px solid #dee2e6;
+                border-radius: 5px;
+                padding: 10px;
+            }
+        """)
+        self.analyst_output.setPlaceholderText("Click 'Check My Data Health' to get a business-friendly assessment of your data quality with clear recommendations and export options...")
         layout.addWidget(self.analyst_output, stretch=1)
 
+        # Navigation buttons
         nav_layout = QHBoxLayout()
         nav_layout.setSpacing(15)
         back_btn = QPushButton("Back")
@@ -699,15 +688,19 @@ class BespokePredictionApp(QWidget):
             validate_features(self.df, selected_features)
             validate_target_column(self.df, target_column)
             
-            df = self.df[selected_features + [target_column]].copy()
+            # Use view instead of copy for initial selection to save memory
+            df_subset = self.df[selected_features + [target_column]]
             
             # Check for sufficient data
-            if len(df) < 10:
+            if len(df_subset) < 10:
                 raise ValidationError("Dataset too small for training (minimum 10 rows required)")
             
-            threshold = int(0.5 * len(df.columns))
-            initial_row_count = len(df)
-            df_cleaned = df[df.isnull().sum(axis=1) <= threshold].copy()
+            threshold = int(0.5 * len(df_subset.columns))
+            initial_row_count = len(df_subset)
+            
+            # Only create copy when we need to modify the data
+            missing_mask = df_subset.isnull().sum(axis=1) <= threshold
+            df_cleaned = df_subset[missing_mask].copy()
             removed_rows = initial_row_count - len(df_cleaned)
             
             if len(df_cleaned) < 10:
@@ -723,6 +716,11 @@ class BespokePredictionApp(QWidget):
                     df_cleaned[col] = df_cleaned[col].fillna(-1)
                 else:
                     df_cleaned[missing_flag] = df_cleaned[col].isnull().astype(int)
+                    
+                    if pd.api.types.is_categorical_dtype(df_cleaned[col]):
+                        if 'missing' not in df_cleaned[col].cat.categories:
+                            df_cleaned[col] = df_cleaned[col].cat.add_categories(['missing'])
+                    
                     df_cleaned[col] = df_cleaned[col].fillna('missing')
             
             processed_data, encoders, processed_cols, feature_to_base = auto_preprocess_data(df_cleaned, target_column)
@@ -755,7 +753,7 @@ class BespokePredictionApp(QWidget):
             from core.errors import handle_error
             import logging
             handle_error(e, "data_preprocessing", logging.getLogger(__name__))
-            log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
+            self.handle_error_with_popup(type(e), e, sys.exc_info()[2])
             QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred during preprocessing:\n{str(e)}")
 
     def show_model_training_panel(self):
@@ -1085,7 +1083,7 @@ class BespokePredictionApp(QWidget):
             from core.errors import handle_error
             import logging
             handle_error(e, "test_file_loading", logging.getLogger(__name__))
-            log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
+            self.handle_error_with_popup(type(e), e, sys.exc_info()[2])
             QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred:\n{str(e)}")
             return
 
@@ -1228,7 +1226,7 @@ class BespokePredictionApp(QWidget):
             from core.errors import handle_error
             import logging
             handle_error(e, "encoder_loading", logging.getLogger(__name__))
-            log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
+            self.handle_error_with_popup(type(e), e, sys.exc_info()[2])
             QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred:\n{str(e)}")
 
     def pred_select_model_file(self):
@@ -1365,7 +1363,7 @@ class BespokePredictionApp(QWidget):
             from core.errors import handle_error
             import logging
             handle_error(e, "model_prediction", logging.getLogger(__name__))
-            log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
+            self.handle_error_with_popup(type(e), e, sys.exc_info()[2])
             QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred during prediction:\n{str(e)}")
 
 
@@ -1586,9 +1584,13 @@ class BespokePredictionApp(QWidget):
             try:
                 from core.data_loader import load_data_file
                 from core.errors import DataLoadingError, ValidationError, SecurityError
+                from core.async_operations import optimize_dataframe_memory
                 
                 # Use the secure data loader
-                self.df = load_data_file(file_name)
+                raw_df = load_data_file(file_name)
+                
+                # Optimize memory usage for large datasets
+                self.df = optimize_dataframe_memory(raw_df)
                 
                 columns = list(self.df.columns)
                 self.features_list.clear()
@@ -1620,5 +1622,5 @@ class BespokePredictionApp(QWidget):
                 from core.errors import handle_error
                 import logging
                 handle_error(e, "file_loading", logging.getLogger(__name__))
-                log_error_to_neon(getattr(self, "user_name", None), type(e), e, sys.exc_info()[2])
+                self.handle_error_with_popup(type(e), e, sys.exc_info()[2])
                 QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred:\n{str(e)}")
