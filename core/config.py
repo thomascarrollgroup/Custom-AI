@@ -33,6 +33,16 @@ class AdminConfig:
     """Admin configuration."""
     ADMIN_EMAIL: str = "devaang.misra@thomas-carroll.co.uk"
 
+@dataclass
+
+
+class SecurityConfig:
+    """Security-related configuration."""
+    MAX_FILE_SIZE_MB: int = 50
+    ALLOWED_FILE_EXTENSIONS: tuple = ('.csv', '.xlsx', '.xls')
+    CONNECTION_TIMEOUT: int = 5
+    MAX_ERROR_MESSAGE_LENGTH: int = 500
+    MAX_USERNAME_LENGTH: int = 100
 
 @dataclass
 class AppConfig:
@@ -40,6 +50,7 @@ class AppConfig:
     ml: MLConfig = field(default_factory=MLConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     admin: AdminConfig = field(default_factory=AdminConfig)
+    security: SecurityConfig = field(default_factory=SecurityConfig)
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> 'AppConfig':
@@ -52,7 +63,8 @@ class AppConfig:
                 return cls(
                     ml=MLConfig(**data.get('ml', {})),
                     ui=UIConfig(**data.get('ui', {})),
-                    admin=AdminConfig(**data.get('admin', {}))
+                    admin=AdminConfig(**data.get('admin', {})),
+                    security_config = SecurityConfig(**data.get('security', {}))
                 )
             except (json.JSONDecodeError, TypeError) as e:
                 print(f"Warning: Failed to load config from {config_path}: {e}")
@@ -65,7 +77,8 @@ class AppConfig:
         config_data = {
             'ml': self.ml.__dict__,
             'ui': self.ui.__dict__,
-            'admin': self.admin.__dict__
+            'admin': self.admin.__dict__,
+            'security': self.security.__dict__,
         }
 
         config_path.parent.mkdir(parents=True, exist_ok=True)

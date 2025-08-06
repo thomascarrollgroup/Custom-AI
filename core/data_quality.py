@@ -99,11 +99,11 @@ class BusinessDataQualityAnalyzer:
         # Business recommendations
         recommendations = []
         if critical_fields:
-            recommendations.append(f"⚠️ {len(critical_fields)} field(s) have severe data gaps - consider removing or finding alternative data sources")
+            recommendations.append(f"{len(critical_fields)} field(s) have severe data gaps - consider removing or finding alternative data sources")
         if concerning_fields:
-            recommendations.append(f"📋 {len(concerning_fields)} field(s) need attention - investigate why data is missing")
+            recommendations.append(f"{len(concerning_fields)} field(s) need attention - investigate why data is missing")
         if len(excellent_fields) == len(self.df.columns):
-            recommendations.append("✅ All fields have excellent data completeness")
+            recommendations.append("All fields have excellent data completeness")
         
         return {
             'excellent_fields': excellent_fields,

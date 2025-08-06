@@ -933,7 +933,7 @@ class BespokePredictionApp(QWidget):
             self.model_results_table.setHorizontalHeaderLabels(['Model', 'Accuracy (%)', 'F1 Score (%)', 'AUC (%)'])
         else:
             self.model_results_table.setColumnCount(3)
-            self.model_results_table.setHorizontalHeaderLabels(['Model', 'R² Score', 'MSE'])
+            self.model_results_table.setHorizontalHeaderLabels(['Model', 'R² Score', 'MAE'])
 
         self.model_results_table.setRowCount(len(results)) 
         if prediction_type == "classification":
@@ -947,7 +947,7 @@ class BespokePredictionApp(QWidget):
             for i, res in enumerate(results):
                 self.model_results_table.setItem(i, 0, QTableWidgetItem(res['name']))
                 self.model_results_table.setItem(i, 1, QTableWidgetItem(f"{res['r2']:.4f}"))
-                self.model_results_table.setItem(i, 2, QTableWidgetItem(f"{res['mse']:.4f}"))
+                self.model_results_table.setItem(i, 2, QTableWidgetItem(f"{res['mae']:.4f}"))
 
         self.model_results_table.show()
         if not hasattr(self, 'save_model_btn'):

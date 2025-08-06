@@ -5,7 +5,7 @@ from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, mean_squared_error, r2_score
+from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, roc_auc_score, mean_squared_error, r2_score
 from core.config import Config
 
 def auto_train_and_evaluate_models(X, y, prediction_type="classification", progress_callback=None):
@@ -76,9 +76,9 @@ def train_regression_models(X, y, progress_callback=None):
     Train multiple regression models and evaluate their performance.
 
     This function splits the input data into training and validation sets,
-    then trains several regression models using either default parameters 
-    or hyperparameter tuning with GridSearchCV. It evaluates each model's 
-    performance on the validation set using Mean Squared Error (MSE) and 
+    then trains several regression models using either default parameters
+    or hyperparameter tuning with GridSearchCV. It evaluates each model's
+    performance on the validation set using Mean Absolute Error (MAE) and
     R-squared (R²) score.
 
     Args:
@@ -89,7 +89,7 @@ def train_regression_models(X, y, progress_callback=None):
 
     Returns:
         results (list of dict): Sorted list of dictionaries containing model 
-            names, their MSE, R2 scores, and trained model objects.
+            names, their MAE, R2 scores, and trained model objects.
         trained_models (dict): Dictionary of trained models with model names 
             as keys.
     """
@@ -112,11 +112,11 @@ def train_regression_models(X, y, progress_callback=None):
         else:
             model.fit(X_train, y_train)
         y_pred = model.predict(X_val)
-        mse = mean_squared_error(y_val, y_pred)
+        mae = mean_absolute_error(y_val, y_pred)
         r2 = r2_score(y_val, y_pred)
         results.append({
             "name": name,
-            "mse": mse,
+            "mae": mae,
             "r2": r2,
             "model": model
         })

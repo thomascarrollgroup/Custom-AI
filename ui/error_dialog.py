@@ -10,7 +10,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QIcon
 from typing import Dict, Any
 
-from config import Config
+from core.config import Config
 
 
 class ErrorDialog(QDialog):
