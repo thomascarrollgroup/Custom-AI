@@ -10,11 +10,24 @@ class MLConfig:
     NUMERIC_IMPUTE_VALUE: float = -1
     CATEGORICAL_IMPUTE_VALUE: str = "missing"
     MAX_UNIQUE_CATEGORIES: int = 10
-    TEST_SIZE: float = 0.5
+    TEST_SIZE: float = 0.2
     RANDOM_STATE: int = 42
-    CV_FOLDS: int = 3
-    MAX_ITERATIONS: int = 1000
+    CV_FOLDS: int = 5  # Increased for better cross-validation
+    MAX_ITERATIONS: int = 2000  # Increased for neural networks
     MAX_ROWS: int = 100000  # Maximum allowed rows for performance
+    
+    # Advanced model settings
+    ENSEMBLE_ENABLED: bool = True
+    HYPERPARAMETER_OPTIMIZATION: bool = True
+    FEATURE_SELECTION_ENABLED: bool = True
+    NEURAL_NETWORK_ENABLED: bool = True
+    SVM_ENABLED: bool = True
+    ADVANCED_PREPROCESSING: bool = True
+    
+    # Performance settings
+    N_JOBS: int = -1  # Use all CPU cores
+    RANDOMIZED_SEARCH_ITERATIONS: int = 20
+    TOP_MODELS_FOR_ENSEMBLE: int = 3
 
 
 @dataclass
@@ -64,7 +77,7 @@ class AppConfig:
                     ml=MLConfig(**data.get('ml', {})),
                     ui=UIConfig(**data.get('ui', {})),
                     admin=AdminConfig(**data.get('admin', {})),
-                    security_config = SecurityConfig(**data.get('security', {}))
+                    security=SecurityConfig(**data.get('security', {}))  # Fixed: was security_config
                 )
             except (json.JSONDecodeError, TypeError) as e:
                 print(f"Warning: Failed to load config from {config_path}: {e}")

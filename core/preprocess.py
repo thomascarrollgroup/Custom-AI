@@ -5,6 +5,7 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 from sklearn.impute import SimpleImputer
 from typing import Tuple, Dict, List, Any, Optional
 from core.config import Config
+from difflib import SequenceMatcher
 
 def clean_numeric(val: Any) -> Optional[float]:
     """Extract numeric value from a string"""
@@ -24,6 +25,93 @@ def safe_label_encode(encoder: LabelEncoder, data: pd.Series, default_value=None
     fallback = default_value if default_value is not None else encoder.classes_[0]
     safe_data = data.astype(str).apply(lambda x: x if x in known_classes else fallback)
     return encoder.transform(safe_data)
+
+
+def find_best_column_match(target_col: str, available_cols: List[str], threshold: float = 0.8) -> Optional[str]:
+    """
+    Find the best matching column name using fuzzy string matching.
+    
+    Args:
+        target_col: The target column name to find
+        available_cols: List of available column names
+        threshold: Minimum similarity score (0-1) to consider a match
+    
+    Returns:
+        The best matching column name or None if no match above threshold
+    """
+    if target_col in available_cols:
+        return target_col
+    
+    # Try exact match first
+    for col in available_cols:
+        if col.lower() == target_col.lower():
+            return col
+    
+    # Try fuzzy matching
+    best_match = None
+    best_score = 0
+    
+    for col in available_cols:
+        # Normalize column names for comparison
+        norm_target = re.sub(r'[_\s]+', '', target_col.lower())
+        norm_col = re.sub(r'[_\s]+', '', col.lower())
+        
+        # Calculate similarity
+        similarity = SequenceMatcher(None, norm_target, norm_col).ratio()
+        
+        if similarity > best_score and similarity >= threshold:
+            best_score = similarity
+            best_match = col
+    
+    return best_match
+
+
+def get_required_columns_for_test_data(encoders: Dict[str, Any], feature_to_base: Dict[str, str]) -> List[str]:
+    """
+    Get the list of required columns for test data based on the training encoders.
+    
+    Args:
+        encoders: Dictionary of encoders from training
+        feature_to_base: Mapping of features to base columns
+    
+    Returns:
+        List of required column names for test data
+    """
+    required_cols = set()
+    
+    for base_col in set(feature_to_base.values()):
+        if base_col in encoders:
+            required_cols.add(base_col)
+    
+    return sorted(list(required_cols))
+
+
+def validate_test_data_columns(test_df: pd.DataFrame, encoders: Dict[str, Any], feature_to_base: Dict[str, str]) -> Tuple[bool, List[str], List[str]]:
+    """
+    Validate that test data has the required columns.
+    
+    Args:
+        test_df: Test data DataFrame
+        encoders: Dictionary of encoders from training
+        feature_to_base: Mapping of features to base columns
+    
+    Returns:
+        Tuple of (is_valid, missing_cols, mapped_cols)
+    """
+    required_cols = get_required_columns_for_test_data(encoders, feature_to_base)
+    available_cols = list(test_df.columns)
+    
+    missing_cols = []
+    mapped_cols = []
+    
+    for req_col in required_cols:
+        actual_col = find_best_column_match(req_col, available_cols)
+        if actual_col is None:
+            missing_cols.append(req_col)
+        elif actual_col != req_col:
+            mapped_cols.append((req_col, actual_col))
+    
+    return len(missing_cols) == 0, missing_cols, mapped_cols
 
 
 def auto_preprocess_data(
@@ -122,101 +210,102 @@ def preprocess_test_data(
     test_df: pd.DataFrame,
     encoders: Dict[str, Any],
     features: List[str],
-    feature_to_base: Dict[str, str],   # new param
+    feature_to_base: Dict[str, str],
     target_col: Optional[str] = None
 ) -> pd.DataFrame:
     """
-    Preprocess a test DataFrame by:
-
-    1. Handling missing values in each column
-    2. Encoding categorical columns with LabelEncoder or OneHotEncoder
-    3. Scaling numeric columns with StandardScaler
-
-    Returns a DataFrame with the same features as the input DataFrame, but with
-    missing values imputed and categorical columns encoded or scaled.
-
-    Parameters:
-    test_df: pd.DataFrame
-        Test data to preprocess
-    encoders: Dict[str, Any]
-        Dictionary of encoders used for training data (from auto_preprocess_data)
-    features: List[str]
-        List of features to preprocess
-    feature_to_base: Dict[str, str]
-        Mapping of each feature to its base column (for one-hot encoded columns)
-    target_col: Optional[str]
-        Optional target column name for the test data (if not provided, it is
-        assumed that the test data does not have a target column)
-
-    Returns:
-    pd.DataFrame
-        Preprocessed test data
+    Preprocess test data to exactly match training features,
+    including one-hot encoded columns that may not appear in test set.
     """
     df = test_df.copy()
     processed = pd.DataFrame(index=df.index)
+    available_cols = list(df.columns)
+    
+    # Log available columns for debugging
+    print(f"Available columns in test data: {available_cols}")
+    print(f"Expected base columns from training: {list(set(feature_to_base.values()))}")
 
     for feat in features:
-        base_col = feature_to_base.get(feat)
-        if base_col is None:
-            # Safety fallback: if no base_col mapping found, treat feature as base_col
-            base_col = feat
-
+        base_col = feature_to_base.get(feat, feat)
         encoder = encoders.get(base_col)
         imputer = encoders.get(base_col + "_imputer")
 
-        if base_col not in df.columns:
-            # Add missing columns with sensible defaults
+        # Try to find the best matching column in test data
+        actual_col = find_best_column_match(base_col, available_cols)
+        
+        if actual_col is None:
+            print(f"Warning: Could not find column '{base_col}' in test data. Using default values.")
+            # Column missing entirely in test data, fallback to default values
             if isinstance(encoder, OneHotEncoder):
                 processed[feat] = 0
-            elif isinstance(encoder, StandardScaler):
+            elif isinstance(encoder, (StandardScaler, LabelEncoder)):
                 processed[feat] = Config.ml.NUMERIC_IMPUTE_VALUE
             else:
                 processed[feat] = Config.ml.NUMERIC_IMPUTE_VALUE
             continue
+        elif actual_col != base_col:
+            print(f"Info: Mapped '{base_col}' to '{actual_col}' in test data")
 
-        col_data = df[base_col].copy()
+        col_data = df[actual_col].copy()
 
+        # Impute if needed
         if imputer:
             try:
-                col_data = imputer.transform(col_data.values.reshape(-1, 1)).ravel()
-            except Exception:
+                # Convert to numpy array and reshape for imputer
+                if hasattr(col_data, 'values'):
+                    col_data_array = col_data.values.reshape(-1, 1)
+                else:
+                    col_data_array = np.array(col_data).reshape(-1, 1)
+                col_data = imputer.transform(col_data_array).ravel()
+            except Exception as e:
+                print(f"Warning: Imputation failed for '{base_col}': {e}. Using default values.")
                 col_data = pd.Series(col_data).fillna(Config.ml.NUMERIC_IMPUTE_VALUE)
 
+        # Apply encoder
         if encoder:
             if isinstance(encoder, StandardScaler):
-                col_data = encoder.transform(col_data.reshape(-1, 1)).ravel()
-                processed[feat] = col_data
-
-            elif isinstance(encoder, OneHotEncoder):
                 try:
-                    arr = encoder.transform(col_data.values.reshape(-1, 1))
-                    ohe_cols = [f"{base_col}_{cat}" for cat in encoder.categories_[0]]
-                    arr_df = pd.DataFrame(arr, columns=ohe_cols, index=df.index)
-                    # Insert all one-hot columns in processed
-                    for ohe_col in ohe_cols:
-                        processed[ohe_col] = arr_df.get(ohe_col, 0)
-                except Exception:
-                    # If transform fails, create zeros for all one-hot columns
-                    for cat in encoder.categories_[0]:
-                        processed[f"{base_col}_{cat}"] = 0
+                    # Convert to numpy array and reshape for scaler
+                    if hasattr(col_data, 'values'):
+                        col_data_array = col_data.values.reshape(-1, 1)
+                    else:
+                        col_data_array = np.array(col_data).reshape(-1, 1)
+                    col_data = encoder.transform(col_data_array).ravel()
+                    processed[feat] = col_data
+                except Exception as e:
+                    print(f"Warning: Scaling failed for '{base_col}': {e}. Using default values.")
+                    processed[feat] = Config.ml.NUMERIC_IMPUTE_VALUE
 
             elif isinstance(encoder, LabelEncoder):
                 encoded = safe_label_encode(encoder, col_data)
                 processed[feat] = encoded
 
-            else:
-                processed[feat] = col_data
+            elif isinstance(encoder, OneHotEncoder):
+                try:
+                    # Convert to numpy array and reshape for one-hot encoder
+                    if hasattr(col_data, 'values'):
+                        col_data_array = col_data.values.reshape(-1, 1)
+                    else:
+                        col_data_array = np.array(col_data).reshape(-1, 1)
+                    arr = encoder.transform(col_data_array)
+                    ohe_cols = [f"{base_col}_{cat}" for cat in encoder.categories_[0]]
+                    arr_df = pd.DataFrame(arr, columns=ohe_cols, index=df.index)
+
+                    for ohe_col in ohe_cols:
+                        processed[ohe_col] = arr_df.get(ohe_col, 0)
+                except Exception as e:
+                    print(f"Warning: One-hot encoding failed for '{base_col}': {e}. Using default values.")
+                    # If transformation fails, fill all expected OHE columns with 0
+                    for cat in encoder.categories_[0]:
+                        processed[f"{base_col}_{cat}"] = 0
         else:
             processed[feat] = col_data
 
-    # Make sure all required features exist (in case some were missed)
+    # FINAL STEP: Make sure all expected training features are present
     for feat in features:
         if feat not in processed.columns:
-            base_col = feature_to_base.get(feat, feat)
-            enc = encoders.get(base_col)
-            if isinstance(enc, OneHotEncoder):
-                processed[feat] = 0
-            else:
-                processed[feat] = Config.ml.NUMERIC_IMPUTE_VALUE
+            print(f"Warning: Feature '{feat}' not found in processed data. Adding with default value 0.")
+            processed[feat] = 0
 
+    # Reorder columns exactly as in training
     return processed[features]

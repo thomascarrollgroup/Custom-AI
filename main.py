@@ -1,3 +1,18 @@
+# CRITICAL FIX: Prevent infinite window spawning
+import os
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend to prevent window spawning
+
+# Prevent multiple QApplication instances
+os.environ['QT_QPA_PLATFORM'] = 'windows'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
+# Import matplotlib after setting backend
+import matplotlib.pyplot as plt
+plt.ioff()  # Turn off interactive mode
+
 import sys
 import os
 from PyQt5.QtWidgets import QApplication

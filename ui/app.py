@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QPalette, QColor, QFont, QFontDatabase, QPixmap, QPainter, QIcon
+from core.config import Config
 import requests
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from ui.styles import BUTTON_STYLESHEET, TAB_STYLESHEET, COMBOBOX_STYLESHEET, PREDICTION_ENABLED_STYLESHEET, PREDICTION_DISABLED_STYLESHEET
@@ -24,6 +25,8 @@ import pandas as pd
 import matplotlib
 
 from core.validators import validate_dataframe
+
+# CRITICAL FIX: Set matplotlib backend before any other imports
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 import pickle
@@ -44,14 +47,14 @@ class BespokePredictionApp(QWidget):
         super().__init__()
         self.user_name = None
         self.prediction_help_state = "default"
-        self.setWindowTitle("TC AI Predicshun Tool")
+        self.setWindowTitle("TC AI Prediction Tool")
         self.setWindowIcon(QIcon(resource_path("Images/icon.png")))
         self.df = None
         self.selected_features = []
         self.background_image = QPixmap(resource_path("Images/wire-svg.svg"))
         
         # Initialize error logging with configurable admin email
-        self.admin_email = "admin@company.com"  # Configure this as needed
+        self.admin_email = Config.admin.ADMIN_EMAIL  # Configure this as needed
         self.error_logger = get_error_logger(self.admin_email)
 
         self.stacked_layout = QStackedLayout(self)
@@ -770,6 +773,12 @@ class BespokePredictionApp(QWidget):
             
             logger = get_logger(__name__, getattr(self, "user_name", None))
             
+            # CRITICAL FIX: Ensure matplotlib is properly configured for threading
+            import matplotlib
+            matplotlib.use('Qt5Agg')
+            import matplotlib.pyplot as plt
+            plt.ioff()  # Turn off interactive mode
+            
             encoder_name, ok = QInputDialog.getText(
                 self, "Save Encoders",
                 "Enter a name for your encoder file (no extension)\nThis saves how your data needs to be preprocessed\n⚠️THIS WILL BE NEEDED WHEN TESTING!!⚠️"
@@ -856,9 +865,10 @@ class BespokePredictionApp(QWidget):
             
             logger.info(f"Starting model training. Type: {prediction_type}, Features: {len(self.selected_features_after_preproc)}, Samples: {len(x)}")
             
+            # CRITICAL FIX: Create progress dialog with proper parent
             self.progress_dialog = QProgressDialog("Training models...", "Cancel", 0, 100, self)
             self.progress_dialog.setWindowTitle("Training in Progress")
-            self.progress_dialog.setWindowModality(True)
+            self.progress_dialog.setWindowModality(Qt.ApplicationModal)  # Use application modal
             self.progress_dialog.setValue(0)
             self.progress_dialog.setMinimumWidth(400)
             self.progress_dialog.show()
@@ -866,10 +876,13 @@ class BespokePredictionApp(QWidget):
             # Connect cancel button
             self.progress_dialog.canceled.connect(self._cancel_training)
             
+            # CRITICAL FIX: Create worker with proper thread isolation
             self.worker = ModelTrainingWorker(x, y, prediction_type=prediction_type, train_func=auto_train_and_evaluate_models)
             self.worker.progress.connect(self.update_training_progress)
             self.worker.finished.connect(self.training_finished)
             self.worker.error_occurred.connect(self.training_error)  # Use error_occurred, not error
+            
+            # CRITICAL FIX: Ensure worker is properly started
             self.worker.start()
 
             
@@ -1166,13 +1179,26 @@ class BespokePredictionApp(QWidget):
             if test_df.empty:
                 raise ValidationError("Test data is empty")
             
-            # Check if required columns exist in test data
-            missing_cols = [col for col in initial_features if col not in test_df.columns]
-            if missing_cols:
-                raise ValidationError(
-                    f"Test data is missing required columns: {', '.join(missing_cols)}",
-                    f"Available columns: {', '.join(test_df.columns.tolist())}"
-                )
+            # Check if required columns exist in test data using fuzzy matching
+            from core.preprocess import validate_test_data_columns
+            is_valid, missing_cols, mapped_cols = validate_test_data_columns(test_df, encoders, feature_to_base)
+            
+            if not is_valid:
+                # Get required columns for better error message
+                from core.preprocess import get_required_columns_for_test_data
+                required_cols = get_required_columns_for_test_data(encoders, feature_to_base)
+                
+                error_msg = f"Test data is missing required columns: {', '.join(missing_cols)}"
+                details_msg = f"Required columns: {', '.join(required_cols)}\nAvailable columns: {', '.join(test_df.columns.tolist())}"
+                
+                if mapped_cols:
+                    details_msg += f"\n\nColumn mappings found: {', '.join([f'{orig} -> {mapped}' for orig, mapped in mapped_cols])}"
+                
+                raise ValidationError(error_msg, details_msg)
+            
+            # Log column mappings if any
+            if mapped_cols:
+                logger.info(f"Column mappings: {mapped_cols}")
             
             threshold = int(0.5 * len(test_df.columns))
             initial_row_count = len(test_df)

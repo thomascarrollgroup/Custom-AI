@@ -1,18 +1,20 @@
 import pandas as pd
-import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend to prevent window spawning
 import matplotlib.pyplot as plt
-import seaborn as sns
-from typing import Dict, List, Any, Tuple, Optional
-import io
-import base64
+plt.ioff()  # Turn off interactive mode
 from matplotlib.figure import Figure
+import numpy as np
+import seaborn as sns
+from typing import Dict, List, Tuple, Any, Optional
 import warnings
-from openpyxl import Workbook
-from openpyxl.styles import PatternFill, Font, Alignment
-from openpyxl.utils.dataframe import dataframe_to_rows
-from pathlib import Path
-import os
 warnings.filterwarnings('ignore')
+
+# Set seaborn to use non-interactive backend
+sns.set_style("whitegrid")
+plt.ioff()
+
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 try:
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
