@@ -100,5 +100,3 @@ echo Build process completed!
 echo You can find your executable at: dist\TC_AI_Prediction_Tool.exe
 echo.
 pause
-EOF
-)
