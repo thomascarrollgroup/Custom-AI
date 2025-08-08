@@ -309,3 +309,101 @@ def preprocess_test_data(
 
     # Reorder columns exactly as in training
     return processed[features]
+
+
+def reverse_preprocess_data(
+    processed_df: pd.DataFrame,
+    encoders: Dict[str, Any],
+    feature_to_base: Dict[str, str],
+    original_columns: List[str]
+) -> pd.DataFrame:
+    """
+    Reverse the preprocessing to convert encoded values back to original format.
+    
+    Args:
+        processed_df: DataFrame with processed/encoded features
+        encoders: Dictionary of encoders used during preprocessing
+        feature_to_base: Mapping of features to base columns
+        original_columns: List of original column names to restore
+    
+    Returns:
+        DataFrame with original column values restored
+    """
+    reversed_df = pd.DataFrame(index=processed_df.index)
+    
+    # Group features by their base column
+    base_to_features = {}
+    for feat, base_col in feature_to_base.items():
+        if base_col not in base_to_features:
+            base_to_features[base_col] = []
+        base_to_features[base_col].append(feat)
+    
+    # Process each original column
+    for orig_col in original_columns:
+        # Skip missing flag columns (they should not be in original_columns anyway)
+        if orig_col.endswith('_missing'):
+            continue
+            
+        if orig_col not in base_to_features:
+            # Column wasn't processed, use as-is
+            if orig_col in processed_df.columns:
+                reversed_df[orig_col] = processed_df[orig_col]
+            continue
+        
+        features = base_to_features[orig_col]
+        encoder = encoders.get(orig_col)
+        
+        if isinstance(encoder, OneHotEncoder):
+            # Skip one-hot encoded columns entirely - don't include them in results
+            continue
+        
+        elif isinstance(encoder, StandardScaler):
+            # Reverse scaling
+            try:
+                # Find the scaled feature
+                scaled_feature = None
+                for feat in features:
+                    if feat in processed_df.columns:
+                        scaled_feature = feat
+                        break
+                
+                if scaled_feature is not None:
+                    # Reverse the scaling
+                    scaled_values = processed_df[scaled_feature].values.reshape(-1, 1)
+                    original_values = encoder.inverse_transform(scaled_values).ravel()
+                    reversed_df[orig_col] = original_values
+                else:
+                    reversed_df[orig_col] = np.nan
+            except Exception as e:
+                print(f"Warning: Failed to reverse scaling for '{orig_col}': {e}")
+                reversed_df[orig_col] = np.nan
+        
+        elif isinstance(encoder, LabelEncoder):
+            # Reverse label encoding
+            try:
+                # Find the encoded feature
+                encoded_feature = None
+                for feat in features:
+                    if feat in processed_df.columns:
+                        encoded_feature = feat
+                        break
+                
+                if encoded_feature is not None:
+                    # Reverse the label encoding
+                    encoded_values = processed_df[encoded_feature]
+                    original_values = encoder.inverse_transform(encoded_values)
+                    reversed_df[orig_col] = original_values
+                else:
+                    reversed_df[orig_col] = "Unknown"
+            except Exception as e:
+                print(f"Warning: Failed to reverse label encoding for '{orig_col}': {e}")
+                reversed_df[orig_col] = "Error"
+        
+        else:
+            # No encoder found, use the feature as-is
+            for feat in features:
+                if feat in processed_df.columns:
+                    reversed_df[orig_col] = processed_df[feat]
+                    break
+    
+    return reversed_df

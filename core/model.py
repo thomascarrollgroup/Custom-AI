@@ -257,6 +257,8 @@ class AdvancedModelTrainer:
     def train_with_advanced_optimization(self, X, y, task_type="classification", progress_callback=None):
         """Train models with advanced hyperparameter optimization."""
         # Split data with stratification for classification
+        print('train:', X.columns)
+        print('test:', y.name)
         if task_type == "classification":
             X_train, X_val, y_train, y_val = train_test_split(
                 X, y, test_size=0.2, random_state=self.random_state, stratify=y

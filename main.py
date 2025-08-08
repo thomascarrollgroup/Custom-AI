@@ -1,7 +1,6 @@
-# CRITICAL FIX: Prevent infinite window spawning
 import os
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend to prevent window spawning
+matplotlib.use('Agg')  
 
 # Prevent multiple QApplication instances
 os.environ['QT_QPA_PLATFORM'] = 'windows'

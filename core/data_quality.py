@@ -1,3 +1,6 @@
+from tkinter.font import Font
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Font
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend to prevent window spawning
