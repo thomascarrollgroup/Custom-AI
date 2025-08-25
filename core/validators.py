@@ -20,16 +20,6 @@ def validate_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             f"Consider reducing your dataset size or processing in chunks"
         )
     
-    # Check for suspicious column names that might indicate malicious data
-    suspicious_patterns = ['__', 'eval', 'exec', 'import', 'os.', 'sys.']
-    for col in df.columns:
-        col_str = str(col).lower()
-        if any(pattern in col_str for pattern in suspicious_patterns):
-            raise SecurityError(
-                f"Suspicious column name detected: {col}",
-                "Column names should not contain executable code patterns"
-            )
-    
     return df
 
 

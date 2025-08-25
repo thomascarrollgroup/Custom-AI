@@ -166,7 +166,6 @@ class BusinessDataQualityAnalyzer:
     def _analyze_data_accuracy(self) -> Dict[str, Any]:
         """Analyze data accuracy and unusual patterns."""
         accuracy_issues = []
-        suspicious_patterns = []
         
         # Check numeric fields for outliers
         numeric_cols = self.df.select_dtypes(include=[np.number]).columns
@@ -203,7 +202,6 @@ class BusinessDataQualityAnalyzer:
         return {
             'outlier_fields': outlier_fields,
             'accuracy_issues': accuracy_issues,
-            'suspicious_patterns': suspicious_patterns,
             'accuracy_score': self._calculate_accuracy_score(outlier_fields, accuracy_issues)
         }
     

@@ -277,6 +277,9 @@ def preprocess_test_data(
                     processed[feat] = Config.ml.NUMERIC_IMPUTE_VALUE
 
             elif isinstance(encoder, LabelEncoder):
+                # Ensure col_data is a pandas Series for safe_label_encode
+                if isinstance(col_data, np.ndarray):
+                    col_data = pd.Series(col_data, index=df.index)
                 encoded = safe_label_encode(encoder, col_data)
                 processed[feat] = encoded
 
