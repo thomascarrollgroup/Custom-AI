@@ -56,6 +56,7 @@ pyinstaller ^
     --hidden-import=PyQt5.QtWidgets ^
     --hidden-import=pandas ^
     --hidden-import=numpy ^
+    --hidden-import=tkinter ^
     --hidden-import=sklearn ^
     --hidden-import=matplotlib ^
     --hidden-import=seaborn ^
@@ -67,7 +68,6 @@ pyinstaller ^
     --collect-submodules=matplotlib ^
     --collect-submodules=seaborn ^
     --collect-submodules=PyQt5 ^
-    --exclude-module=tkinter ^
     --exclude-module=tests ^
     --exclude-module=pytest ^
     main.py
